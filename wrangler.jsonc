@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bible-style-translator",
+  "workers_dev": true,
+  "preview_urls": true,
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-06-22",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "bible-style-translator"
+    }
+  ],
+  "vars": {
+    "DEEPSEEK_MODEL": "deepseek-chat",
+    "DEEPSEEK_REVIEW_MODEL": "deepseek-chat",
+    "MAX_OUTPUT_TOKENS": "2400"
+  }
+}

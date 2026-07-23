@@ -1,0 +1,4 @@
+interface:
+  display_name: "原事成经"
+  short_description: "将任意现代题材逐句过度翻译成庄严生硬的和合本腔"
+  default_prompt: "使用 $speak-scripture，保留这段文案的原意、事实与文本结构，把它改写成故意庄严生硬的和合本译腔。"

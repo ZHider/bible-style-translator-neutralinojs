@@ -1,0 +1,46 @@
+{
+    "metadata":  {
+                     "title":  "新标点和合本（简体）",
+                     "abbreviation":  "CUVs",
+                     "source":  "https://ebible.org/Scriptures/cmn-cu89s_usfm.zip",
+                     "details":  "https://ebible.org/Scriptures/details.php?id=cmn-cu89s",
+                     "rights":  "Public Domain",
+                     "generatedAt":  "2026-07-23T10:02:02.7420700Z"
+                 },
+    "bookCount":  66,
+    "verseCount":  31021,
+    "candidateCount":  16098,
+    "typeCounts":  {
+                       "aphorism":  8253,
+                       "dialogue":  6597,
+                       "story":  5909
+                   },
+    "aphorismThemeCounts":  {
+                                "谦卑与骄傲":  46,
+                                "撒种与收取":  70,
+                                "量器与待人":  15,
+                                "树木与果子":  66,
+                                "内心与言语":  99,
+                                "柔和与怒气":  91,
+                                "殷勤与懒惰":  45,
+                                "时候与定期":  529,
+                                "忍耐与盼望":  101,
+                                "智慧与愚昧":  197,
+                                "谋略与商议":  20,
+                                "诚实与虚假":  124,
+                                "公平与正直":  184,
+                                "怜悯与恩慈":  77,
+                                "饶恕与宽恕":  49,
+                                "和睦与纷争":  45,
+                                "朋友与同伴":  289,
+                                "施予与知足":  67,
+                                "忠心与责任":  38,
+                                "小事与根基":  113,
+                                "道路与选择":  28,
+                                "寻找与祈求":  38,
+                                "光明与黑暗":  86,
+                                "节制与警醒":  121,
+                                "爱与包容":  12,
+                                "得失与轻重":  173
+                            }
+}
