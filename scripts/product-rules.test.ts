@@ -66,6 +66,13 @@ test("visual and downloadable skill assets remain synchronized", async () => {
 test("deployment config uses the independent worker name", async () => {
   const wrangler = await readFile(path.join(root, "wrangler.jsonc"), "utf8");
   const packageJson = await readFile(path.join(root, "package.json"), "utf8");
+  const assetPreparation = await readFile(
+    path.join(root, "scripts/prepare-cloudflare-assets.mjs"),
+    "utf8",
+  );
   assert.match(wrangler, /bible-style-translator/);
   assert.match(packageJson, /"name": "bible-style-translator"/);
+  assert.match(packageJson, /prepare-cloudflare-assets\.mjs/);
+  assert.match(assetPreparation, /_next\/static\/css/);
+  assert.match(assetPreparation, /rel="stylesheet"/);
 });
