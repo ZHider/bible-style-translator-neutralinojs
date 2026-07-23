@@ -23,7 +23,7 @@ jobs:
         run: npm ci
 
       - name: Build OpenNext bundle
-        run: npx opennextjs-cloudflare build
+        run: npm run cf:build
 
       - name: Upload Cloudflare bundle
         uses: actions/upload-artifact@v4
