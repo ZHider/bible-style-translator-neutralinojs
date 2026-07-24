@@ -107,6 +107,27 @@ bible-style-deepseek-api-key
 
 浏览器只在调用 `/api/translate` 时通过 `Authorization: Bearer <用户Key>` 临时发送它。服务端不读取公共 `DEEPSEEK_API_KEY`，也不持久化用户 Key。
 
+## Windows 桌面版
+
+桌面版会在应用内部启动打包好的本地服务，并打开 `http://127.0.0.1:32145`。页面、样式、图片和翻译接口均随程序提供，不需要访问公开的 `workers.dev` 网站；联网只用于调用 DeepSeek API。
+
+构建 64 位 Windows 便携版：
+
+```bash
+npm ci
+npm run desktop:dist
+```
+
+生成文件位于：
+
+```text
+.artifacts/desktop-dist/圣经体翻译器 1.0.0.exe
+```
+
+桌面版同样采用 BYOK。用户首次打开后点击“配置 API”，填写自己的 DeepSeek API Key；Key 只保存在本机应用的数据目录中，不会被打包进安装文件或上传到项目仓库。
+
+当前发布包没有购买 Windows 代码签名证书，因此首次运行时 Windows SmartScreen 可能显示“未知发布者”。用户应从项目官方 Release 下载，并可用随发布包提供的 SHA-256 文件校验完整性。
+
 ## 可选环境变量
 
 ```env

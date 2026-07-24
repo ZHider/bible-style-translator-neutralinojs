@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "保留任意现代中文文案的原意与结构，将其改写成故意庄严过度的和合本翻译腔。",
   "type": "module",
+  "main": "desktop/main.cjs",
+  "author": "圣经体翻译器",
   "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
@@ -14,6 +16,10 @@
     "test": "tsx --test scripts/*.test.ts",
     "typecheck": "tsc --noEmit",
     "public:audit": "node scripts/public-audit.mjs",
+    "desktop:prepare": "node scripts/prepare-desktop-server.mjs",
+    "desktop:build": "next build && npm run desktop:prepare",
+    "desktop:run": "npm run desktop:build && electron .",
+    "desktop:dist": "npm run desktop:build && electron-builder --win portable --x64",
     "cf:build": "opennextjs-cloudflare build && node scripts/prepare-cloudflare-assets.mjs",
     "preview": "npm run cf:build && opennextjs-cloudflare preview",
     "deploy": "npm run cf:build && opennextjs-cloudflare deploy",
@@ -31,11 +37,48 @@
     "@types/node": "24.10.1",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
     "tsx": "^4.20.6",
     "typescript": "5.9.3",
     "wrangler": "^4.103.0"
   },
   "overrides": {
     "postcss": "8.5.15"
+  },
+  "build": {
+    "appId": "com.lizi605.biblestyletranslator",
+    "productName": "圣经体翻译器",
+    "copyright": "Copyright © 2026 圣经体翻译器",
+    "asar": true,
+    "compression": "normal",
+    "directories": {
+      "output": ".artifacts/desktop-dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "build/icon.png",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "app-server"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "圣经体翻译器 ${version}.${ext}",
+      "requestedExecutionLevel": "asInvoker"
+    }
   }
 }

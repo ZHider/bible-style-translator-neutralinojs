@@ -76,3 +76,22 @@ test("deployment config uses the independent worker name", async () => {
   assert.match(assetPreparation, /_next\/static\/css/);
   assert.match(assetPreparation, /rel="stylesheet"/);
 });
+
+test("desktop package runs a bundled local server instead of the public Worker", async () => {
+  const packageJson = await readFile(path.join(root, "package.json"), "utf8");
+  const nextConfig = await readFile(path.join(root, "next.config.ts"), "utf8");
+  const desktopMain = await readFile(path.join(root, "desktop/main.cjs"), "utf8");
+  const desktopPreparation = await readFile(
+    path.join(root, "scripts/prepare-desktop-server.mjs"),
+    "utf8",
+  );
+
+  assert.match(packageJson, /"desktop:dist"/);
+  assert.match(packageJson, /electron-builder --win portable --x64/);
+  assert.match(nextConfig, /output: "standalone"/);
+  assert.match(desktopMain, /http:\/\/127\.0\.0\.1/);
+  assert.match(desktopMain, /server_modules/);
+  assert.doesNotMatch(desktopMain, /workers\.dev/);
+  assert.match(desktopPreparation, /\.next\/static/);
+  assert.match(desktopPreparation, /server_modules/);
+});
