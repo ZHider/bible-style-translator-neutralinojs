@@ -18,6 +18,10 @@ import {
   X,
 } from "lucide-react";
 import { buildCardDownloadFilename } from "@/lib/cardDownload";
+import {
+  formatScriptureVerses,
+  type ScriptureVerse,
+} from "@/lib/scriptureVerses";
 import type {
   PlainMode,
   ScriptureDirection,
@@ -137,6 +141,7 @@ export default function Home() {
   const [level, setLevel] = useState<ScriptureLevel>("standard");
   const [text, setText] = useState("");
   const [result, setResult] = useState("");
+  const [verses, setVerses] = useState<ScriptureVerse[]>([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [loadingIndex, setLoadingIndex] = useState(0);
@@ -167,6 +172,13 @@ export default function Home() {
         : `原文成章 · ${selectedLevel.title}`,
     [isPlainDirection, selectedLevel, selectedPlainMode],
   );
+  const shareResult = useMemo(
+    () =>
+      !isPlainDirection && verses.length
+        ? formatScriptureVerses(verses)
+        : result,
+    [isPlainDirection, result, verses],
+  );
 
   useEffect(() => {
     const stored = window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() || "";
@@ -187,6 +199,7 @@ export default function Home() {
     setDirection(nextDirection);
     setText("");
     setResult("");
+    setVerses([]);
     setError("");
   }
 
@@ -244,11 +257,16 @@ export default function Home() {
         },
         body: JSON.stringify({ text: trimmed, direction, mode: "original", plainMode, level }),
       });
-      const payload = (await response.json()) as { result?: string; error?: string };
+      const payload = (await response.json()) as {
+        result?: string;
+        verses?: ScriptureVerse[];
+        error?: string;
+      };
       if (!response.ok || !payload.result) {
         throw new Error(payload.error || "转换失败，请稍后再试。");
       }
       setResult(payload.result);
+      setVerses(isPlainDirection ? [] : payload.verses || []);
       window.setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
     } catch (requestError) {
       setError(
@@ -263,7 +281,7 @@ export default function Home() {
 
   async function copyResult() {
     if (!result) return;
-    await navigator.clipboard.writeText(result);
+    await navigator.clipboard.writeText(shareResult);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   }
@@ -288,7 +306,7 @@ export default function Home() {
 
     const width = 1200;
     context.font = '34px "Noto Serif SC", "Songti SC", serif';
-    const lines = wrapCanvasText(context, result, 940);
+    const lines = wrapCanvasText(context, shareResult, 940);
     const lineHeight = 58;
     const bodyHeight = Math.max(520, lines.length * lineHeight + 260);
     canvas.width = width;
@@ -341,7 +359,7 @@ export default function Home() {
 
     const link = document.createElement("a");
     link.href = canvas.toDataURL("image/png");
-    link.download = buildCardDownloadFilename(resultMeta, new Date(), result);
+    link.download = buildCardDownloadFilename(resultMeta, new Date(), shareResult);
     link.click();
   }
 
@@ -501,7 +519,16 @@ export default function Home() {
             </div>
             {result ? (
               <>
-                <article className="result-text">{result}</article>
+                <article className="result-text">
+                  {!isPlainDirection && verses.length
+                    ? verses.map((verse) => (
+                        <span className="scripture-verse" key={verse.number}>
+                          <sup>{verse.number}</sup>
+                          {verse.text}
+                        </span>
+                      ))
+                    : result}
+                </article>
                 <div className="result-actions">
                   <button type="button" onClick={copyResult}>
                     {copied ? <Check size={16} /> : <Copy size={16} />}

@@ -710,6 +710,25 @@ textarea::placeholder {
   letter-spacing: 0.025em;
 }
 
+.scripture-verse {
+  display: inline;
+}
+
+.scripture-verse + .scripture-verse {
+  margin-left: 0.62em;
+}
+
+.scripture-verse sup {
+  position: relative;
+  top: -0.18em;
+  margin-right: 0.24em;
+  color: #d6b46d;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0.66em;
+  font-weight: 700;
+  line-height: 0;
+}
+
 .result-actions {
   display: flex;
   flex-wrap: wrap;

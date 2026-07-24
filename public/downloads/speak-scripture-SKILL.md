@@ -5,11 +5,11 @@ description: Convert modern Chinese into conspicuous Chinese Union Version style
 
 # Speak Scripture
 
-Use deterministic skeleton filling. The goal is a coherent Chinese Union Version-style little story, not a line-by-line transcript with archaic substitutions. Do not ask the model to freely rewrite or polish the final prose.
+Use deterministic skeleton filling while preserving the source text type. A story should become a coherent Chinese Union Version-style little story; a definition, factual statement, notice, instruction, list, or maxim must remain that kind of text. Do not ask the model to freely rewrite or polish the final prose.
 
 ## Workflow
 
-1. Reorganize the input around its story spine, then identify only:
+1. Classify the source as story, maxim, definition, factual explanation, notice, instruction, list, or another information form. For a story, reorganize it around its story spine; for other forms, retain their information structure. Then identify only:
    - text type;
    - people, sides, speaker and addressee;
    - ordered actions, objects, places, conditions, negation and results;
@@ -19,7 +19,7 @@ Use deterministic skeleton filling. The goal is a coherent Chinese Union Version
 4. Connect events with fixed translated-vernacular narration.
 5. Return the complete result. If identification fails, use a local emergency frame; do not loop through repeated rewrites.
 
-The identification result must be strict structured data, never draft prose. Merge greetings, repeated courtesy, seating, drinking, repeated forms of address, and nearby utterances with the same purpose. It may reorder incidental staging into a clear opening, development, turn, and ending. Preserve people, sides, central conflict, decisive action ownership, harmed parties, and outcome; exact dialogue order and minor details are subordinate to the scripture-story effect. It may label functions such as welcome, introduction, request, refusal, promise, command, warning, insult challenge, paired dominance, self-identification, self-defense, mediation, coercion, guarantee, trade price, curse or death threat. The renderer, not the identifying model, owns the final wording.
+The identification result must be strict structured data, never draft prose. Only story inputs may merge greetings, repeated courtesy, seating, drinking, repeated forms of address, and nearby utterances with the same purpose. Preserve people, sides, central conflict, decisive action ownership, harmed parties, and outcome; definitions must preserve the defined name and every `以甲为乙` relation. It may label functions such as welcome, introduction, request, refusal, promise, command, warning, insult challenge, paired dominance, self-identification, self-defense, mediation, coercion, guarantee, trade price, curse, death threat, definition, factual statement, or enumeration. The renderer, not the identifying model, owns the final wording.
 
 Slots contain only content that is absent from the fixed frame. Never put frame words such as 若、必、不可、你今日、我当怎样 or a copied half-sentence into a slot. For example, an exit condition is `这样离开房间`, not `你今日若这样离开房间`; a boast action is `这样对我说话`, not `我长到这么大还没有人敢这样说话`. If one source utterance has two independent functions, emit two consecutive speech units and let the renderer merge their speech tag.
 
@@ -41,6 +41,9 @@ Examples:
 - Correction: `这不是【rejected】，乃是【asserted】。`
 - Mutual claims: `你有【theirs】，我也有【mine】。`
 - General rule: `凡【category】的，必【result】。`
+- Definition: `论到【subject】，所称为【name】的，乃是这样：【details】。`
+- Factual statement: `论到【subject】，所记的乃是这样：【fact】。`
+- Enumeration: `论到【subject】，所列的乃是这些：【items】。`
 - Paired rule: `凡【A】的，必【result A】；凡【B】的，也必【result B】。`
 - Identity: `论到我的名，人所称呼我的名乃是【name】。`
 - Challenge: `【known A】我认识，【known B】我也知道；你却是谁，竟敢【challenge】呢？`
@@ -55,6 +58,12 @@ Examples:
 - Curse and penalty: `若【condition】，【subject】就有祸了；它必【penalty】。`
 
 If no narrow function fits, use a fixed general request, refusal, command, promise, question, contrast, rule, agreement or disagreement frame. Never fall back to ordinary modern dialogue inside quotation marks.
+
+## Text-type and maxim gate
+
+Do not classify a source as a maxim merely because it is one sentence or has no dialogue. Definitions and factual explanations commonly contain `是、指、称为、以……为……、由……组成、包括、属于、用于、标准、规范`; they must use definition or factual frames and must never acquire invented blessing, curse, punishment, judgment, or behavior-and-consequence logic.
+
+Use maxim frames only when the source actually makes a general judgment about behavior, character, choice, or consequence. Select a sentence contour by meaning from the broad Chinese Union Version repertoire—wisdom, diligence, sowing and reaping, measure, pride, friendship, patience, roads, seasons, speech, and other suitable themes. Do not collapse unrelated maxims into one `有福了，因为他必……` pattern. `有福` requires an explicitly positive behavior and positive outcome; `有祸` requires an explicitly negative behavior and negative outcome.
 
 Close a complete passage with one supported final cadence. Use `这事就这样成了` only for an accomplished result, `这事的结局，就是这样` for an explicit departure or resolved conflict, and `所吩咐的话／所要晓谕的，就是这些` for commands or notices. Do not add a completion ending to a threat, question, plan, deadline, or unfinished event.
 
@@ -96,3 +105,5 @@ Do not invent Bible characters, miracles, doctrine, motives, extra attacks, cons
 The style is old translated vernacular, not generic classical Chinese or wuxia prose. Avoid 曰、吾、汝、矣、焉、拍案而起、说时迟那时快、只见 and similar chaptered-novel language.
 
 Output only the rewritten body.
+
+For scripture-style output, divide the completed text into semantic verses and prefix consecutive verse numbers. Keep `若……就……`, `不是……乃是……`, paired `凡……必……` clauses, and complete quotations in the same verse. Do not invent a real Bible book, chapter, or citation.

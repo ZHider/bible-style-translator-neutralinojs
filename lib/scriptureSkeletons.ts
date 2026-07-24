@@ -3,6 +3,11 @@ import {
   renderCuvStoryAphorism,
 } from "@/lib/cuvAphorismSkeletons";
 import { buildCuvStoryTemplatePrompt } from "@/lib/cuvStoryTemplates";
+import {
+  classifyScriptureSource,
+  isAphorismSource,
+  isStrongDefinitionSource,
+} from "@/lib/scriptureGenre";
 
 export const SPEECH_INTENT_IDS = [
   "welcome",
@@ -43,6 +48,9 @@ export const SPEECH_INTENT_IDS = [
   "question",
   "contrast",
   "general_rule",
+  "definition",
+  "factual_statement",
+  "enumeration",
   "guarantee",
   "trade_price",
   "curse_penalty",
@@ -469,6 +477,23 @@ function renderSpeech(
           : renderCuvAphorism(category, result);
       }
       return `凡${strippedElement(elements, "category", "如此行", [/^凡/u, /的$/u])}的，必${strippedElement(elements, "result", "得着相应的结果", [/^必/u])}。`;
+    case "definition": {
+      const subject = strippedElement(elements, "subject", "这事");
+      const name = strippedElement(elements, "name", subject);
+      const details = strippedElement(elements, "details", "它的性质已经显明");
+      return `论到${subject}，所称为${name}的，乃是这样：${details}。`;
+    }
+    case "factual_statement": {
+      const subject = strippedElement(elements, "subject", "这事");
+      const fact = strippedElement(elements, "fact", "事情已经显明");
+      const more = strippedElement(elements, "more", "");
+      return `论到${subject}，所记的乃是这样：${fact}${more ? `；${more}` : ""}。`;
+    }
+    case "enumeration": {
+      const subject = strippedElement(elements, "subject", "这些事");
+      const items = strippedElement(elements, "items", "所列的各项");
+      return `论到${subject}，所列的乃是这些：${items}。`;
+    }
     case "guarantee":
       return `我今日在众人面前作保：若${strippedElement(elements, "condition", "这事不照所说的成就", [/^若/u])}，我必${strippedElement(elements, "penalty", "担当它的罪责", [/^我必/u])}。`;
     case "trade_price":
@@ -872,28 +897,46 @@ function dedupeHistoricalSpeech(plan: ScriptureSkeletonPlan) {
   return { ...plan, units };
 }
 
-function isStandaloneAphorismPlan(plan: ScriptureSkeletonPlan) {
+function isStandaloneAphorismPlan(plan: ScriptureSkeletonPlan, source = "") {
   const textType = cleanSlot(plan.textType, 60);
-  if (/通知|公告|晓谕|条例|规则|清单|操作|技术|说明/u.test(textType)) return false;
-  if (/观点|格言|警句|箴言|感悟|独白|寓言/u.test(textType)) return true;
-  return (
+  const sourceGenre = source ? classifyScriptureSource(source) : null;
+  const declarationOnly =
     plan.units.length > 0 &&
     plan.units.length <= 4 &&
     plan.units.every(
       (unit) =>
         unit.kind === "declaration" &&
         ["general_rule", "contrast", "question"].includes(unit.intent),
-    )
-  );
+    );
+  if (
+    sourceGenre === "definition" ||
+    sourceGenre === "notice" ||
+    sourceGenre === "instruction" ||
+    sourceGenre === "factual"
+  ) {
+    return false;
+  }
+  if (sourceGenre === "aphorism") return declarationOnly;
+  if (
+    /通知|公告|晓谕|条例|规则|清单|操作|技术|说明|定义|百科|知识|事实/u.test(
+      textType,
+    ) ||
+    (source && isStrongDefinitionSource(source))
+  ) {
+    return false;
+  }
+  if (/格言|警句|箴言|感悟|寓言/u.test(textType)) return true;
+  if (/观点|独白/u.test(textType)) return source ? isAphorismSource(source) : true;
+  return (!source || isAphorismSource(source)) && declarationOnly;
 }
 
-function isAphorismFriendlyPlan(plan: ScriptureSkeletonPlan) {
-  if (isStandaloneAphorismPlan(plan)) return true;
+function isAphorismFriendlyPlan(plan: ScriptureSkeletonPlan, source = "") {
+  if (isStandaloneAphorismPlan(plan, source)) return true;
   return /故事|记事|片段|寓言|轶事/u.test(cleanSlot(plan.textType, 60));
 }
 
-function renderPlanClosure(plan: ScriptureSkeletonPlan) {
-  if (isStandaloneAphorismPlan(plan)) return "";
+function renderPlanClosure(plan: ScriptureSkeletonPlan, source = "") {
+  if (isStandaloneAphorismPlan(plan, source)) return "";
   const hasConflict = plan.units.some((unit) => {
     if (unit.kind === "speech") {
       return ["insult_challenge", "exit_threat", "coercion", "death_threat"].includes(
@@ -943,16 +986,16 @@ function renderPlanClosure(plan: ScriptureSkeletonPlan) {
   return "";
 }
 
-export function renderScriptureSkeletonPlan(plan: ScriptureSkeletonPlan) {
+export function renderScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source = "") {
   plan = dedupeHistoricalSpeech(condenseHistoricalOpening(repairHistoricalPlan(plan)));
   const renderedUnits: string[] = [];
   const speakerSeen = new Map<string, number>();
   const intentSeen = new Map<string, number>();
   const lastAddressee = new Map<string, string>();
   let previousUnit: ScriptureSkeletonUnit | null = null;
-  const aphorismMode = isAphorismFriendlyPlan(plan);
+  const aphorismMode = isAphorismFriendlyPlan(plan, source);
   const storyAnchorMode =
-    !isStandaloneAphorismPlan(plan) &&
+    !isStandaloneAphorismPlan(plan, source) &&
     /故事|记事|片段|寓言|轶事/u.test(cleanSlot(plan.textType, 60));
 
   for (const unit of plan.units) {
@@ -1019,7 +1062,7 @@ export function renderScriptureSkeletonPlan(plan: ScriptureSkeletonPlan) {
     previousUnit = unit;
   }
 
-  const closure = renderPlanClosure(plan);
+  const closure = renderPlanClosure(plan, source);
   if (closure && !renderedUnits.at(-1)?.endsWith(closure)) renderedUnits.push(closure);
 
   const paragraphs: string[] = [];
@@ -1036,19 +1079,24 @@ export function renderScriptureSkeletonPlan(plan: ScriptureSkeletonPlan) {
 
 export function buildSkeletonIdentificationPrompt(source: string) {
   const sourceLength = [...source.trim()].length;
+  const detectedGenre = classifyScriptureSource(source);
+  const storyTemplatePrompt =
+    detectedGenre === "story" ? buildCuvStoryTemplatePrompt(source) : "";
   const shortStoryRule =
     sourceLength >= 100 && sourceLength <= 200
-      ? `\n18. 本次输入为 ${sourceLength} 字。若它是有人物与事件推进的短故事，必须安排至少两处“名句载体”：优先为一至两个 declaration:general_rule，再配合一个最关键的 speech；没有对白时使用两个 declaration。每个 declaration 都必须从原文已有的时辰、劳苦与果效、选择与后果、言语与反应、帮助、诚实、忍耐、骄傲、道路、撒种收取或树与果子关系中提取 category 与 result，好让服务器套入高保留的著名和合本句式。可补入一至两个不改变因果的微小动作或场面过渡，使故事完整，但不得增加新人物、新动机、新冲突或新结局。开场从简，名句与铺陈集中在转折和结果。`
+      ? `\n19. 本次输入为 ${sourceLength} 字。若它是有人物与事件推进的短故事，必须安排至少两处“名句载体”：优先为一至两个 declaration:general_rule，再配合一个最关键的 speech；没有对白时使用两个 declaration。每个 declaration 都必须从原文已有的时辰、劳苦与果效、选择与后果、言语与反应、帮助、诚实、忍耐、骄傲、道路、撒种收取或树与果子关系中提取 category 与 result，好让服务器套入高保留的著名和合本句式。可补入一至两个不改变因果的微小动作或场面过渡，使故事完整，但不得增加新人物、新动机、新冲突或新结局。开场从简，名句与铺陈集中在转折和结果。`
       : "";
-  return `把输入整理成一篇“圣经小故事”的情节骨架，不写正文，也不要选择圣经句子。服务器会按照对白功能决定固定骨架，再机械填入元素。
+  return `把输入整理成与原文文本类型相符的结构骨架，不写正文，也不要选择圣经句子。服务器会按照文本功能决定固定骨架，再机械填入元素。
 
-这不是逐句翻译或影视台词校对。最高目标是让后续渲染成为一篇连贯、庄严、可一口气读完的圣经式记事。只锁定人物与阵营、核心冲突、决定局势的发言、关键因果、关键动作归属、伤害对象和结局。寒暄、礼让、重复称呼、坐席饮酒和相近对白可以合并、压缩、调序或改成叙述。
+本次输入已由服务器预判为“${detectedGenre}”。定义、知识、事实、通知和操作说明必须保留原有文本功能，不得改造成故事、格言、祝福、咒诅或行为报应。只有真正的人物故事才围绕情节主干重组；故事中的寒暄、礼让、重复称呼和相近对白可以合并、压缩、调序或改成叙述。
 
-${buildCuvStoryTemplatePrompt(source)}
+对于人物故事，这不是逐句翻译或影视台词校对；只锁定人物阵营、核心冲突、关键因果、决定局势的发言、动作归属、伤害对象与结局。
+
+${storyTemplatePrompt}
 
 只输出以下 JSON：
 {
-  "textType": "记事/通知/观点/独白/条例等",
+  "textType": "记事/格言/定义/知识说明/事实陈述/通知/独白/条例等",
   "units": [
     {"kind":"narration","frame":"arrival/action/reaction/indirect_speech/introduction/transition/outcome/setting","actor":"","target":"","action":"不含主语的完整动作短语","object":"","place":"","time":"","matter":"","result":""},
     {"kind":"speech","intent":"对白功能","speaker":"","addressee":"","delivery":"said/answered/asked/warned/commanded/cried","elements":{"元素名":"来自输入的短语"}},
@@ -1070,6 +1118,7 @@ ${buildCuvStoryTemplatePrompt(source)}
 - coercion(positiveCondition,negativeCondition,result), boast(action), death_threat(target)
 - request(action,result), refusal(matter,action), command(action,prohibition), promise(action)
 - question(question,more), contrast(rejected,asserted), general_rule(category,result)
+- definition(subject,name,details), factual_statement(subject,fact,more), enumeration(subject,items)
 - guarantee(condition,penalty), trade_price(item,unit,price), curse_penalty(condition,subject,penalty)
 - agreement(action), disagreement(matter)
 
@@ -1087,10 +1136,11 @@ ${buildCuvStoryTemplatePrompt(source)}
 11. mediation_request 专用于“甲请求乙为了丙而停止、允许或改变某事”，speaker 必须是甲，addressee 必须是乙，beneficiary 必须是丙；relay_request 只用于“甲叫乙传话给丙，让丙亲自来找甲”。二者不可混用。借钱关系必须明确谁向谁借、是否承诺归还。
 12. 单独呼喊一个人的名字只是叫住、示意或使其停步，不是 welcome；应写成 action/reaction，或与紧接着的 warning、command 合并。不得因一句称呼让人物重新邀请对方坐席。
 13. 每一个保留的 speech 都只填一个清楚的发言功能；可以改变表面说法以适配固定圣经骨架，但不得把劝诫交给辩护者、把拒绝者写成应允者、把威胁者和被威胁者调换。
-14. 输入若是没有人物对白的观点、感悟、座右铭或警句，textType 必须写“格言”或“观点”。一句话或一个短段通常只整理成一个 declaration，信息确有两层时最多两个；不可把一句话拆成多条解释。优先使用 general_rule(category,result) 或 contrast(rejected,asserted)，不得虚构说话人。category 只填最核心的行为、品格或处境，result 只填最核心的后果，不得把“凡、必、有福、乃是”等骨架词塞入元素。
+14. 只有原文确实对行为、品格、选择与后果作普遍判断时，才把没有对白的短文写成“格言”或“观点”，并使用 general_rule(category,result) 或 contrast(rejected,asserted)。不能因为输入只有一句话就判定为格言。category 只填最核心的行为、品格或处境，result 只填原文已有的后果，不得把“凡、必、有福、乃是”等骨架词塞入元素。
 15. 格言必须保持原文的褒贬和因果方向：值得鼓励的行为配正面结果，应当禁止的行为配负面后果；不得把“不离开朋友、诚实、忍耐”等善行整理成应当禁止之事，也不得把“贪图捷径、欺骗、骄傲”等恶行整理成应当持守之事。category 与 result 都要写成独立、明确、没有双重否定的短语。格言最终应像一节真实经文：短促、完整、通常只有一至两个分句；只靠拢一个最合适的著名句式，不得把几处经文拼成解释段落。
 16. 长篇故事也可以使用格言骨架。遇到明确的因果、报应、骄傲、忍耐、取舍、量人、撒种收取、树与果子、光暗、道路、根基、时候、言语、怒气或朋友关系时，可以把相邻情节合并为 declaration:general_rule，使正文出现一至四处格言式判断；也可以把关键对白的意思靠拢到合适格言。为了节目效果可以增强比喻和复沓，但不得调换人物阵营、动作归属、伤害对象或因果方向。
-17. 只输出 JSON，不输出 Markdown。
+17. 定义句和知识说明若出现“是、指、称为、以……为……、由……组成、包括、属于、用于、标准、规范”等结构，textType 必须写“定义”或“知识说明”，并使用 definition(subject,name,details) 或 factual_statement(subject,fact,more)。details 必须保留“以甲为乙”等关系及被定义名称，不得使用 general_rule，也不得添加“有福、有祸、凡、必、刑罚、审判”。
+18. 只输出 JSON，不输出 Markdown。
 ${shortStoryRule}
 
 <输入>

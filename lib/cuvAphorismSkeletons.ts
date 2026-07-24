@@ -414,7 +414,7 @@ function inferOutcomeTone(frame: string): OutcomePolarity {
     /有福|喜乐|尊荣|智慧|忠实|诚实|正直|公义|和睦|越照越明|察验|忍耐|持守|得胜|站立得住|丰裕|保护|扶起|善道|正道|亲爱|顾念|能使|好叫|可以/gu,
   )?.length ?? 0;
   const negative = prefix.match(
-    /偏离|恶|祸|败坏|跌倒|懒惰|虚空|网罗|受害|灭亡|亏损|失去|背道|疏忽|残忍|贪恋/gu,
+    /偏离|恶|祸|败坏|跌倒|懒惰|虚空|网罗|受害|灭亡|亏损|失去|减少|无所得|贫穷|穷乏|背道|疏忽|残忍|贪恋/gu,
   )?.length ?? 0;
   if (positive > negative) return "positive";
   if (negative > positive) return "negative";
@@ -464,11 +464,11 @@ function classifyOutcomePolarity(value: string): OutcomePolarity {
 function logicFitsPolarity(logic: AphorismLogic, polarity: BehaviorPolarity) {
   if (polarity === "positive") return logic !== "warn";
   if (polarity === "negative") return logic !== "affirm";
-  return true;
+  return logic === "cause" || logic === "contrast";
 }
 
 function outcomeFitsPolarity(expected: OutcomePolarity, actual: OutcomePolarity) {
-  return expected === "neutral" || actual === "neutral" || expected === actual;
+  return expected === "neutral" || expected === actual;
 }
 
 const SAFE_FALLBACKS: Record<
@@ -545,12 +545,16 @@ function chooseTheme(category: string, result: string) {
       ? "adversity"
       : /忍耐|耐心|坚持|不放弃|熬过/u.test(category)
         ? "patience"
+      : /认真(?:工作|做事)|每天工作|每日工作|作工|勤奋工作/u.test(category)
+        ? "diligence"
       : /朋友|友情|伙伴|同伴|忠诚|义气|陪伴/u.test(category)
         ? "friendship"
         : /捷径|正路|歧路|偏路|道路|岔路/u.test(category)
           ? "way"
           : /怎样对待|怎么对待|待人|量给|回敬|以.{0,8}(?:恶意|善意|恩慈).{0,6}(?:待|对)/u.test(source)
             ? "measure"
+            : /用.{0,8}恶意.{0,8}(?:待|对)|以.{0,8}善意.{0,8}(?:待|对)/u.test(source)
+              ? "measure"
             : /种|收获|收割|自食其果|咎由自取|报应|代价/u.test(source)
               ? "sow-reap"
               : "";
@@ -568,6 +572,19 @@ function chooseTheme(category: string, result: string) {
     .filter((entry) => entry.score > 0)
     .sort((left, right) => right.score - left.score || left.index - right.index);
   return scored[0]?.item ?? APHORISM_THEMES.at(-1)!;
+}
+
+function frameSlotPenalty(frame: string, category: string) {
+  let penalty = 0;
+  const length = [...category].length;
+  if (/在【行为】上|在【行为】中/u.test(frame)) penalty += length > 6 ? 8 : 3;
+  if (/行【行为】|借【行为】|关于【行为】/u.test(frame)) penalty += 7;
+  if (/【行为】的(?:工|时机|外貌)/u.test(frame)) penalty += 6;
+  if (/论到【行为】|凡【行为】|人若【行为】|【行为】虽|【行为】若/u.test(frame)) {
+    penalty -= 2;
+  }
+  if (/^【行为】/u.test(frame)) penalty -= 1;
+  return penalty;
 }
 
 function preferredHighRetentionSkeletonId(
@@ -647,10 +664,17 @@ function renderHighRetentionMaxim(
   if (skeleton.theme === "饶恕与宽恕" && /原谅|饶恕|宽恕/u.test(category)) {
     return `你若${normalizeSubject(category)}，自己也必${normalizeResult(result)}。`;
   }
+  if (
+    skeleton.theme === "殷勤与懒惰" &&
+    classifyBehaviorPolarity(category) === "positive" &&
+    classifyOutcomePolarity(result) === "positive"
+  ) {
+    return `诸般勤劳都有益处；凡${normalizeSubject(category)}的，必${normalizeResult(result)}。`;
+  }
   return "";
 }
 
-function renderCompactMaxim(
+function renderSelectedMaxim(
   skeleton: CuvAphorismSkeleton,
   category: string,
   result: string,
@@ -660,48 +684,28 @@ function renderCompactMaxim(
   const polarity = classifyBehaviorPolarity(category);
   const outcomePolarity = classifyOutcomePolarity(result);
 
-  let frames: readonly string[];
-  if (polarity === "negative" && outcomePolarity === "negative") {
-    frames = [
-      "人若【行为】，至终必【结果】。",
-      "凡【行为】的，必【结果】。",
-      "【行为】的有祸了；他必【结果】。",
-    ];
-  } else if (polarity === "negative") {
-    frames = [
-      "不要【行为】；离开这道路的，必【结果】。",
-      "人若止住【行为】，至终必【结果】。",
-      "凡离开【行为】的，必【结果】。",
-    ];
-  } else if (outcomePolarity === "negative") {
-    frames = [
-      "人虽【行为】，若不警醒，仍必【结果】。",
-      "【行为】虽在眼前，若不谨慎，至终必【结果】。",
-    ];
-  } else {
-    frames = [
-      "凡【行为】的，必【结果】。",
-      "【行为】的人有福了，因为他必【结果】。",
-      "惟有【行为】的，必【结果】。",
-      "【行为】的虽暂时劳苦，至终必【结果】。",
-    ];
-  }
-
-  let frame = frames[stableHash(`${skeleton.id}:${category}:${result}`) % frames.length];
-  if (/有福/u.test(skeleton.sourceShape) && outcomePolarity !== "negative") {
-    frame = "【行为】的人有福了，因为他必【结果】。";
-  } else if (/有祸|败坏|灭亡/u.test(skeleton.sourceShape) && polarity === "negative") {
-    frame = "【行为】的有祸了；他必【结果】。";
-  } else if (/^凡/u.test(skeleton.sourceShape)) {
+  let frame = skeleton.frame;
+  if (
+    /有福/u.test(frame) &&
+    !(polarity === "positive" && outcomePolarity === "positive")
+  ) {
     frame = "凡【行为】的，必【结果】。";
   }
+  if (
+    /有祸/u.test(frame) &&
+    !(polarity === "negative" && outcomePolarity === "negative")
+  ) {
+    frame = "人若【行为】，至终必【结果】。";
+  }
 
-  return frame
+  const rendered = frame
     .replaceAll("【行为】", subject)
     .replaceAll("【结果】", outcome)
     .replace(/必必/gu, "必")
     .replace(/。。+/gu, "。")
     .trim();
+
+  return rendered;
 }
 
 function stableHash(value: string) {
@@ -726,7 +730,7 @@ export function selectCuvAphorismSkeleton(category: string, result: string) {
     outcomeFitsPolarity(item.outcomeTone, outcomePolarity),
   );
   const fallback = SAFE_FALLBACKS[`${polarity}:${outcomePolarity}`];
-  const candidates = compatible.length
+  const initialCandidates = compatible.length
     ? compatible
     : fallback.length
       ? fallback
@@ -736,8 +740,14 @@ export function selectCuvAphorismSkeleton(category: string, result: string) {
     category,
     result,
   );
-  const preferred = candidates.find((item) => item.id === preferredId);
+  const preferred = initialCandidates.find((item) => item.id === preferredId);
   if (preferred) return preferred;
+  const lowestPenalty = Math.min(
+    ...initialCandidates.map((item) => frameSlotPenalty(item.frame, category)),
+  );
+  const candidates = initialCandidates.filter(
+    (item) => frameSlotPenalty(item.frame, category) === lowestPenalty,
+  );
   return candidates[stableHash(source) % candidates.length];
 }
 
@@ -745,7 +755,7 @@ export function renderCuvAphorism(category: string, result: string) {
   const skeleton = selectCuvAphorismSkeleton(category, result);
   const highRetention = renderHighRetentionMaxim(skeleton, category, result);
   if (highRetention) return highRetention;
-  return renderCompactMaxim(skeleton, category, result);
+  return renderSelectedMaxim(skeleton, category, result);
 }
 
 /**
@@ -775,10 +785,5 @@ export function renderCuvStoryAphorism(category: string, result: string) {
     return `${laborer}，虽是流泪撒种；到了收割的时候，必欢呼收割，也必${outcome}。`;
   }
 
-  return skeleton.frame
-    .replaceAll("【行为】", subject)
-    .replaceAll("【结果】", outcome)
-    .replace(/必必/gu, "必")
-    .replace(/。。+/gu, "。")
-    .trim();
+  return renderSelectedMaxim(skeleton, subject, outcome);
 }

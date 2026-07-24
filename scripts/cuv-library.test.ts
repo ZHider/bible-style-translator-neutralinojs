@@ -225,7 +225,7 @@ test("aphorism renderer preserves positive and negative logical direction", () =
   }
 });
 
-test("ordinary one-sentence maxims render as compact scripture-like verses", () => {
+test("ordinary one-sentence maxims use distinct matching library frames", () => {
   const outputs = [
     renderCuvAphorism("说话以前先想清楚", "免去日后的后悔"),
     renderCuvAphorism("每天认真工作", "终必看见劳苦的果效"),
@@ -236,14 +236,18 @@ test("ordinary one-sentence maxims render as compact scripture-like verses", () 
 
   assert.match(outputs[0], /说话以前先想清楚.*免去日后的后悔/u);
   assert.match(outputs[1], /认真工作.*劳苦的果效/u);
-  assert.equal(outputs[2], "凡用恶意对待别人的，必从别人得着恶意。");
+  assert.match(outputs[0], /智慧为首/u);
+  assert.match(outputs[1], /诸般勤劳都有益处/u);
+  assert.match(outputs[2], /怎样|照样|量器|恶意/u);
   assert.equal(outputs[3], "凡在众人面前抬高自己的，必因骄傲降为卑。");
   assert.equal(outputs[4], "你若肯饶恕人的过犯，自己也必得着释放。");
+  assert.ok(new Set(outputs).size === outputs.length);
+  assert.ok(outputs.filter((output) => /有福/u.test(output)).length <= 1);
   for (const output of outputs) {
-    assert.ok(output.length <= 32);
+    assert.ok(output.length <= 52);
     assert.doesNotMatch(
       output,
-      /论到|在.{2,20}上护庇|凡事察验|就当持守|各人当察验自己在|你若因.*饶恕人/u,
+      /在说话以前先想清楚上|在每天认真工作上的工|就当持守.*恶意|你若因.*饶恕人/u,
     );
   }
 });

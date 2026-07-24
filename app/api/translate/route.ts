@@ -12,11 +12,19 @@ import {
 } from "@/lib/prompt";
 import { normalizeUnionNarration } from "@/lib/scriptureQuality";
 import {
+  classifyScriptureSource,
+  definitionTermsArePreserved,
+  hasForbiddenMoralization,
+  renderDefinitionSource,
+  renderSafeFactualSource,
+} from "@/lib/scriptureGenre";
+import {
   buildSkeletonIdentificationPrompt,
   parseScriptureSkeletonPlan,
   renderEmergencyScripture,
   renderScriptureSkeletonPlan,
 } from "@/lib/scriptureSkeletons";
+import { segmentScriptureText } from "@/lib/scriptureVerses";
 
 export const runtime = "nodejs";
 
@@ -57,6 +65,20 @@ type RateRecord = {
 const globalForRateLimit = globalThis as typeof globalThis & {
   scriptureRateLimit?: Map<string, RateRecord>;
 };
+
+function finalizeScriptureResult(source: string, value: string) {
+  let result = normalizeCuvSceneLexicon(
+    source,
+    normalizeUnionNarration(value),
+  );
+  if (
+    hasForbiddenMoralization(source, result) ||
+    !definitionTermsArePreserved(source, result)
+  ) {
+    result = renderSafeFactualSource(source);
+  }
+  return { result, verses: segmentScriptureText(result) };
+}
 const rateLimit =
   globalForRateLimit.scriptureRateLimit ?? new Map<string, RateRecord>();
 globalForRateLimit.scriptureRateLimit = rateLimit;
@@ -303,6 +325,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ result });
     }
 
+    const sourceGenre = classifyScriptureSource(text);
+    if (mode === "original" && sourceGenre === "definition") {
+      return NextResponse.json(
+        finalizeScriptureResult(text, renderDefinitionSource(text)),
+      );
+    }
+
     if (mode === "original") {
       let plan = null;
       for (let attempt = 0; attempt < 2 && Date.now() < deadlineAt - 3000; attempt += 1) {
@@ -311,7 +340,7 @@ export async function POST(request: NextRequest) {
             apiKey,
             deadlineAt,
             systemPrompt:
-              "你是圣经小故事的情节编辑。把输入重组为连贯故事骨架，只保留人物阵营、核心冲突、关键因果、决定局势的发言、动作归属、伤害对象与结局；寒暄、重复对白和次要动作可以合并、调序或改成叙述。只输出严格 JSON，不得选择经文，不得写正文。",
+              "你是和合本风格改写器的结构编辑。先保持输入原有的文本类型：定义仍是定义，事实仍是事实，通知仍是通知，格言仍是格言，故事才整理成故事。只输出严格 JSON，不得选择经文，不得写正文，不得凭空添加祝福、咒诅、因果或评价。",
             userPrompt: buildSkeletonIdentificationPrompt(text),
             maxTokens,
             temperature: 0.05,
@@ -324,13 +353,9 @@ export async function POST(request: NextRequest) {
       }
 
       const rendered = plan
-        ? renderScriptureSkeletonPlan(plan)
+        ? renderScriptureSkeletonPlan(plan, text)
         : renderEmergencyScripture(text);
-      const result = normalizeCuvSceneLexicon(
-        text,
-        normalizeUnionNarration(rendered),
-      );
-      return NextResponse.json({ result });
+      return NextResponse.json(finalizeScriptureResult(text, rendered));
     }
 
     const generated = await callDeepSeek({
@@ -341,15 +366,11 @@ export async function POST(request: NextRequest) {
       maxTokens,
       temperature: 0.55,
     });
-    const result = normalizeCuvSceneLexicon(
-      text,
-      normalizeUnionNarration(generated),
-    );
-    return NextResponse.json({ result });
+    return NextResponse.json(finalizeScriptureResult(text, generated));
   } catch (error) {
     if (error instanceof DOMException && error.name === "TimeoutError") {
       return NextResponse.json(
-        { result: renderEmergencyScripture(text) },
+        finalizeScriptureResult(text, renderEmergencyScripture(text)),
         { status: 200 },
       );
     }

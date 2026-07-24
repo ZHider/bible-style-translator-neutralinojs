@@ -102,8 +102,9 @@ test("unknown speech functions fall back to a fixed frame instead of free-form p
 
 test("identification prompt permits only facts and speech functions", () => {
   const prompt = buildSkeletonIdentificationPrompt("张三让李四把文件放下。");
-  assert.match(prompt, /整理成一篇“圣经小故事”的情节骨架，不写正文/);
-  assert.match(prompt, /服务器会按照对白功能决定固定骨架/);
+  assert.match(prompt, /整理成与原文文本类型相符的结构骨架，不写正文/);
+  assert.match(prompt, /服务器会按照文本功能决定固定骨架/);
+  assert.match(prompt, /定义仍是定义，事实仍是事实|定义、知识、事实/u);
   assert.match(prompt, /不准输出 frame 形式的对白骨架编号/);
   assert.match(prompt, /不要给原文每一句对白都建立 speech/);
   assert.match(prompt, /同一动作只建立一个 unit/);

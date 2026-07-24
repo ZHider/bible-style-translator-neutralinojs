@@ -40,6 +40,8 @@ test("route uses bounded element recognition and deterministic skeleton renderin
   assert.match(route, /DEEPSEEK_CALL_TIMEOUT_MS/);
   assert.match(route, /normalizeUnionNarration/);
   assert.match(route, /normalizeCuvSceneLexicon/);
+  assert.match(route, /renderDefinitionSource/);
+  assert.match(route, /segmentScriptureText/);
 });
 
 test("deterministic skeleton logic is not coupled to the demonstration story", async () => {
@@ -61,6 +63,10 @@ test("visual and downloadable skill assets remain synchronized", async () => {
   assert.equal(publicSkill, sourceSkill);
   assert.match(sourceSkill, /Chinese Union Version/i);
   assert.match(sourceSkill, /Preserve the story or information spine/i);
+  assert.match(sourceSkill, /Text-type and maxim gate/i);
+  assert.match(sourceSkill, /Do not collapse unrelated maxims/i);
+  assert.match(page, /scripture-verse/);
+  assert.match(page, /formatScriptureVerses/);
 });
 
 test("deployment config uses the independent worker name", async () => {
