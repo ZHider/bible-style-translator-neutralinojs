@@ -19,6 +19,7 @@ import {
   renderSafeFactualSource,
 } from "@/lib/scriptureGenre";
 import {
+  assessScriptureStoryPlan,
   assessScriptureStoryResult,
   buildSkeletonIdentificationPrompt,
   groundScriptureSkeletonPlan,
@@ -345,7 +346,7 @@ export async function POST(request: NextRequest) {
             apiKey,
             deadlineAt,
             systemPrompt:
-              "你是和合本风格改写器的结构编辑。先保持输入原有的文本类型：定义仍是定义，事实仍是事实，通知仍是通知，格言仍是格言，故事才整理成故事。只输出严格 JSON，不得选择经文，不得写正文，不得凭空添加祝福、咒诅、因果或评价。",
+              "你是和合本风格改写器的结构编辑。先保持输入原有文本类型：定义仍是定义，事实仍是事实，通知仍是通知，格言仍是格言，祝愿仍是祝愿，故事才整理成故事。只输出严格 JSON，不得选择经文，不得写正文。人物故事只在顶层 reflection 中提取一组由原文支持的人物、具体行为、实际结果、逻辑关系、褒贬方向和逐字证据；不得在 units 中写故事格言，不得凭空添加祝福、咒诅、因果或评价。",
             userPrompt: buildSkeletonIdentificationPrompt(text, previousIssues),
             maxTokens,
             temperature: 0.05,
@@ -355,9 +356,15 @@ export async function POST(request: NextRequest) {
             previousIssues = ["返回内容不是可解析的完整结构 JSON"];
             continue;
           }
+          const planIssues = assessScriptureStoryPlan(parsedPlan, text);
           const groundedPlan = groundScriptureSkeletonPlan(parsedPlan, text);
           const candidateResult = renderScriptureSkeletonPlan(groundedPlan, text);
-          const assessment = assessScriptureStoryResult(text, candidateResult);
+          const resultAssessment = assessScriptureStoryResult(text, candidateResult);
+          const assessment = {
+            acceptable: resultAssessment.acceptable && planIssues.length === 0,
+            score: Math.max(0, resultAssessment.score - planIssues.length * 0.08),
+            issues: [...planIssues, ...resultAssessment.issues],
+          };
           if (assessment.score > bestScore) {
             bestScore = assessment.score;
             bestPlan = groundedPlan;

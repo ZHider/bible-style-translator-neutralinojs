@@ -342,7 +342,7 @@ test("slot sanitation is generic across notices, technical text, trade, guarante
   assert.match(output, /每一斤作价三元/);
   assert.match(output, /人所称呼我的名乃是陈明/);
   assert.match(output, /我必夺取你的命/);
-  assert.match(output, /论到这钱，我断不收下；你家里人若还在担心，就当快回去报平安/);
+  assert.match(output, /论到这钱，我断不收取；你家里人若还在担心，就当快回去报平安/);
 });
 
 test("generic action recovery uses surrounding roles without relying on one story", () => {
@@ -466,10 +466,11 @@ test("100-to-200-character stories request grounded recognizable anchor carriers
   const prompt = buildSkeletonIdentificationPrompt(source);
 
   assert.match(prompt, /本次输入为 102 字/);
-  assert.match(prompt, /一处最合适的“名句载体”/);
+  assert.match(prompt, /再填写顶层 reflection/);
+  assert.match(prompt, /reflection\.behavior 必须是故事中最值得评价的具体行为或选择/);
   assert.match(prompt, /不得把赠送者与收受者调换/);
   assert.match(prompt, /每个源句至少要有一个 unit/u);
-  assert.match(prompt, /只有原文确实存在第二个独立而清楚的因果时/u);
+  assert.match(prompt, /出现钱不等于贪财/u);
   assert.match(prompt, /可补入一个不改变因果的场面过渡/);
 });
 

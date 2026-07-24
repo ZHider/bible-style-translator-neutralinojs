@@ -10,8 +10,8 @@ export type CuvAphorismSkeleton = {
 
 export type AphorismLogic = "affirm" | "warn" | "cause" | "contrast";
 
-type BehaviorPolarity = "positive" | "negative" | "neutral";
-type OutcomePolarity = "positive" | "negative" | "neutral";
+export type BehaviorPolarity = "positive" | "negative" | "neutral";
+export type OutcomePolarity = "positive" | "negative" | "neutral";
 
 type AphorismTheme = {
   id: string;
@@ -119,7 +119,7 @@ const APHORISM_THEMES: readonly AphorismTheme[] = [
     ["谋略必护卫你；聪明必保守你。", "谋略必护卫【行为】的人；聪明也使他【结果】。"],
     ["打仗要凭智谋；谋士众多，人便得胜。", "凡要成就【行为】的，当凭智谋；谋士众多，事情必【结果】。"],
   ]),
-  theme("truth", "诚实与虚假", /诚实|真实|真相|撒谎|谎言|欺骗|虚假|骗人/u, [
+  theme("truth", "诚实与虚假", /诚实|真实|真相|撒谎|谎言|欺骗|虚假|骗人|拾金不昧|归还.{0,8}(?:失物|钱包|财物)|物归原主|拒收.{0,8}(?:酬谢|报酬)/u, [
     ["你们的话，是，就说是；不是，就说不是。", "论到【行为】，是，就说是；不是，就说不是；这样才可以【结果】。"],
     ["诚实见证人不说谎话；假见证人吐出谎言。", "诚实的人不以【行为】遮掩；他将实情陈明，就必【结果】。"],
     ["说谎言的嘴为耶和华所憎恶；行事诚实的为他所喜悦。", "不要以【行为】立足；行事诚实的，终必【结果】。"],
@@ -133,7 +133,7 @@ const APHORISM_THEMES: readonly AphorismTheme[] = [
     ["义人的路好像黎明的光，越照越明。", "正直行【行为】的，他的道路如黎明的光，必渐渐【结果】。"],
     ["人以仁爱和诚实为赎罪；敬畏使人离开恶事。", "以仁爱和诚实处理【行为】的，必离开偏邪，使事情【结果】。"],
   ]),
-  theme("mercy", "怜悯与恩慈", /怜悯|同情|帮助|善良|恩慈|宽容|照顾|体谅/u, [
+  theme("mercy", "怜悯与恩慈", /怜悯|同情|帮助|善良|恩慈|宽容|照顾|体谅|照应|扶起|扶持|替.{0,10}(?:送|搬|拿)/u, [
     ["怜恤人的人有福了，因为他们必蒙怜恤。", "那在【行为】上怜恤人的人有福了，因为他必【结果】。"],
     ["好施舍的，必得丰裕；滋润人的，必得滋润。", "以【行为】滋润人的，自己也必得滋润，并且【结果】。"],
     ["怜悯原是向审判夸胜。", "在【行为】上存怜悯的，胜过一味定罪；他终必【结果】。"],
@@ -147,7 +147,7 @@ const APHORISM_THEMES: readonly AphorismTheme[] = [
     ["要彼此包容，彼此饶恕。", "当在【行为】上彼此包容、彼此饶恕，好叫众人【结果】。"],
     ["不可为恶所胜，反要以善胜恶。", "不要因【行为】被恶所胜；要以善胜恶，便可以【结果】。"],
   ]),
-  theme("peace", "和睦与纷争", /和平|和睦|冲突|纷争|争执|争斗|吵架|化解/u, [
+  theme("peace", "和睦与纷争", /和平|和睦|冲突|纷争|争执|争斗|吵架|化解|威胁|动手|扑向|刺伤|制住/u, [
     ["使人和睦的人有福了。", "那因【行为】使人和睦的有福了，因为他必【结果】。"],
     ["若是能行，总要尽力与众人和睦。", "论到【行为】，若是能行，总要尽力与众人和睦，好叫事情【结果】。"],
     ["纷争的起头如水放开，所以争闹之先必当止息争竞。", "【行为】若使纷争开了口，就当及早止息，免得不能【结果】。"],
@@ -189,7 +189,7 @@ const APHORISM_THEMES: readonly AphorismTheme[] = [
     ["不义之财毫无益处；惟有公义能救人脱离死亡。", "因【行为】所得的不义之财毫无益处，不能使人免于【结果】。"],
     ["财宝增添，不要放在心上。", "即使因【行为】得着财宝，也不要放在心上；守住正道的，才会【结果】。"],
   ]),
-  theme("labor", "劳作与果效", /工作|劳动|付出|成果|收成|完成|努力做|干活/u, [
+  theme("labor", "劳作与果效", /工作|劳动|付出|成果|收成|完成|努力做|干活|返工|修改方案|重新核算|重新核对|按时交付/u, [
     ["若有人不肯作工，就不可吃饭。", "人若不肯在【行为】上作工，就不可指望【结果】。"],
     ["各人要察验自己的行为，这样，他所夸的就专在自己。", "各人当察验自己在【行为】上的工；工若站立得住，他必【结果】。"],
     ["诸般勤劳都有益处。", "诸般【行为】都有益处；殷勤作工的，必【结果】。"],
@@ -421,7 +421,7 @@ function inferOutcomeTone(frame: string): OutcomePolarity {
   return "neutral";
 }
 
-function classifyBehaviorPolarity(value: string): BehaviorPolarity {
+export function classifyBehaviorPolarity(value: string): BehaviorPolarity {
   if (
     /不(?:再)?(?:离开|抛弃|放弃|欺骗|撒谎|作恶|报复|争吵|拖延|自高|贪心)|止住(?:恶行|争竞|怒气)/u.test(
       value,
@@ -442,7 +442,7 @@ function classifyBehaviorPolarity(value: string): BehaviorPolarity {
   return "neutral";
 }
 
-function classifyOutcomePolarity(value: string): OutcomePolarity {
+export function classifyOutcomePolarity(value: string): OutcomePolarity {
   if (
     /^(?:免去|避免|脱离|除去|不再).{0,18}(?:后悔|失败|跌倒|败坏|受害|羞辱|祸患|惧怕)/u.test(
       value,
@@ -756,6 +756,37 @@ export function renderCuvAphorism(category: string, result: string) {
   const highRetention = renderHighRetentionMaxim(skeleton, category, result);
   if (highRetention) return highRetention;
   return renderSelectedMaxim(skeleton, category, result);
+}
+
+/**
+ * A few highly recognizable semantic shapes are safer and stronger when read
+ * directly from the user's sentence. This prevents a planning model from
+ * reversing the cause and result before the 200+ frame library is consulted.
+ */
+export function renderRecognizableSourceAphorism(source: string) {
+  const value = source.trim().replace(/[。！？!?；;]+$/gu, "");
+  if (
+    /失败|跌倒|挫折|打击/u.test(value) &&
+    /继续|努力|站起来|重新开始|不放弃|兴起/u.test(value)
+  ) {
+    return "人虽一度跌倒，仍必兴起。";
+  }
+  if (
+    /患难|困境|落难|艰难/u.test(value) &&
+    /不离开|不抛弃|陪伴|朋友|情分/u.test(value)
+  ) {
+    return "朋友乃时常亲爱；患难到了仍不离开的，是为患难而生的弟兄。";
+  }
+  if (
+    /说话|开口|言语/u.test(value) &&
+    /想清楚|思想|谨慎|后悔|慎重/u.test(value)
+  ) {
+    return "谨守口的，得保生命；说话以前先思想的，必不至后悔。";
+  }
+  if (/祝|愿/u.test(value) && /代码/u.test(value) && /运行|部署|上线|执行/u.test(value)) {
+    return "愿你的代码运行在云端，如同运行在本地。";
+  }
+  return "";
 }
 
 /**

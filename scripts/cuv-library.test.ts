@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   CUV_APHORISM_SKELETONS,
   renderCuvAphorism,
+  renderRecognizableSourceAphorism,
   renderCuvStoryAphorism,
   selectCuvAphorismSkeleton,
 } from "../lib/cuvAphorismSkeletons";
@@ -138,12 +139,14 @@ test("story template library covers broad biblical plot structures", () => {
   assert.match(buildCuvStoryTemplatePrompt("两个人都说奖杯是自己的"), /所罗门断案式/u);
 });
 
-test("identification prompt explicitly permits maxims inside long stories", () => {
+test("identification prompt requires one evidence-grounded reflection for every story", () => {
   const prompt = buildSkeletonIdentificationPrompt(
     "甲因骄傲轻看乙，后来失去众人的尊重。",
   );
-  assert.match(prompt, /长篇故事也可以使用格言骨架/u);
-  assert.match(prompt, /格言式判断/u);
+  assert.match(prompt, /每一篇人物故事都必须/u);
+  assert.match(prompt, /顶层 reflection/u);
+  assert.match(prompt, /evidence 必须逐字复制原文/u);
+  assert.match(prompt, /出现钱不等于贪财/u);
   assert.match(prompt, /故事编排原型/u);
 });
 
@@ -179,6 +182,17 @@ test("direct aphorism renderer retains both the input action and consequence", (
   for (const output of outputs) {
     assert.doesNotMatch(output, /以以|不肯一味|把靠|所吩咐的话/u);
   }
+});
+
+test("recognizable source maxims keep famous contours without reversing cause and result", () => {
+  assert.equal(
+    renderRecognizableSourceAphorism("一次失败不能决定最终结果，只要继续努力，总会重新站起来。"),
+    "人虽一度跌倒，仍必兴起。",
+  );
+  assert.equal(
+    renderRecognizableSourceAphorism("说话之前先想清楚，免得日后后悔。"),
+    "谨守口的，得保生命；说话以前先思想的，必不至后悔。",
+  );
 });
 
 test("aphorism renderer preserves positive and negative logical direction", () => {

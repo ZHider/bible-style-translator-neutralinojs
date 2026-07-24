@@ -1,8 +1,21 @@
 import {
+  classifyBehaviorPolarity,
+  classifyOutcomePolarity,
   renderCuvAphorism,
-  renderCuvStoryAphorism,
+  renderRecognizableSourceAphorism,
 } from "@/lib/cuvAphorismSkeletons";
 import { buildCuvStoryTemplatePrompt } from "@/lib/cuvStoryTemplates";
+import {
+  REFLECTION_MODES,
+  REFLECTION_POLARITIES,
+  REFLECTION_RELATIONS,
+  renderNeutralStoryClosure,
+  renderStoryReflection,
+  type ReflectionMode,
+  type ReflectionPolarity,
+  type ReflectionRelation,
+  type ScriptureReflection,
+} from "@/lib/scriptureReflections";
 import {
   classifyScriptureSource,
   isAphorismSource,
@@ -45,6 +58,7 @@ export const SPEECH_INTENT_IDS = [
   "refusal",
   "command",
   "promise",
+  "blessing",
   "question",
   "contrast",
   "general_rule",
@@ -104,10 +118,14 @@ export type ScriptureSkeletonUnit =
 export type ScriptureSkeletonPlan = {
   textType: string;
   units: ScriptureSkeletonUnit[];
+  reflection?: ScriptureReflection;
 };
 
 const SPEECH_INTENT_SET = new Set<string>(SPEECH_INTENT_IDS);
 const NARRATION_ID_SET = new Set<string>(NARRATION_FRAME_IDS);
+const REFLECTION_MODE_SET = new Set<string>(REFLECTION_MODES);
+const REFLECTION_RELATION_SET = new Set<string>(REFLECTION_RELATIONS);
+const REFLECTION_POLARITY_SET = new Set<string>(REFLECTION_POLARITIES);
 
 function cleanSlot(value: unknown, maxLength = 120) {
   if (typeof value !== "string") return "";
@@ -164,7 +182,7 @@ export function parseScriptureSkeletonPlan(raw: string) {
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
 
-  const value = parsed as { textType?: unknown; units?: unknown };
+  const value = parsed as { textType?: unknown; units?: unknown; reflection?: unknown };
   if (!Array.isArray(value.units)) return null;
   const units: ScriptureSkeletonUnit[] = [];
 
@@ -235,9 +253,33 @@ export function parseScriptureSkeletonPlan(raw: string) {
   }
 
   if (!units.length) return null;
+  let reflection: ScriptureReflection | undefined;
+  if (value.reflection && typeof value.reflection === "object" && !Array.isArray(value.reflection)) {
+    const item = value.reflection as Record<string, unknown>;
+    const evidence = Array.isArray(item.evidence)
+      ? item.evidence.map((entry) => cleanSlot(entry, 160)).filter(Boolean).slice(0, 4)
+      : [];
+    reflection = {
+      enabled: item.enabled !== false,
+      mode: REFLECTION_MODE_SET.has(String(item.mode))
+        ? (String(item.mode) as ReflectionMode)
+        : "neutral",
+      actor: cleanSlot(item.actor, 60),
+      behavior: cleanSlot(item.behavior, 180),
+      outcome: cleanSlot(item.outcome, 180),
+      relation: REFLECTION_RELATION_SET.has(String(item.relation))
+        ? (String(item.relation) as ReflectionRelation)
+        : "neutral_record",
+      polarity: REFLECTION_POLARITY_SET.has(String(item.polarity))
+        ? (String(item.polarity) as ReflectionPolarity)
+        : "neutral",
+      evidence,
+    };
+  }
   return {
     textType: cleanSlot(value.textType, 60) || "记事",
     units,
+    reflection,
   } satisfies ScriptureSkeletonPlan;
 }
 
@@ -480,7 +522,10 @@ function renderSpeech(
     case "refusal":
       {
         const matter = element(elements, "matter", "这事");
-        const action = strippedElement(elements, "action", "照此而行", [/^我断不/u]);
+        const rawAction = strippedElement(elements, "action", "照此而行", [/^我断不/u]);
+        const action = /钱|银|酬谢|报酬|礼物|财物/u.test(matter) && /^(?:要|拿|收|收下|接受|收取)$/u.test(rawAction)
+          ? "收取"
+          : rawAction;
         const condition = strippedElement(elements, "condition", "", [/^若/u]);
         const advice = strippedElement(
           elements,
@@ -512,6 +557,21 @@ function renderSpeech(
       return `你当${strippedElement(elements, "action", "照所吩咐的行", [/^你当/u])}；不可${strippedElement(elements, "prohibition", "违背这话", [/^不可/u])}。`;
     case "promise":
       return `我必照你所说的${strippedElement(elements, "action", "去行", [/^我必照(?:你)?所说的/u])}。`;
+    case "blessing": {
+      const subject = strippedElement(elements, "subject", "你", [/^(?:祝|愿)/u]);
+      const wish = strippedElement(elements, "wish", "凡事顺利", [/^(?:祝|愿)/u]);
+      const source = `${subject}，${wish}，${Object.values(elements).join("，")}`;
+      if (/代码/u.test(source) && /运行|部署|上线|执行/u.test(source)) {
+        return "愿你的代码运行在云端，如同运行在本地。";
+      }
+      if (/道路|前路|前程|旅途|出行/u.test(source)) {
+        return `愿${subject}的道路如黎明的光，越照越明，直到${wish}。`;
+      }
+      if (/工作|事业|计划|项目|工程/u.test(source)) {
+        return `愿${subject}手所作的工坚立；愿${wish}，如树栽在溪水旁，按时候结果子。`;
+      }
+      return `愿${subject}${wish}；愿平安归与你，如江河长流。`;
+    }
     case "question":
       {
         const rawQuestion = element(elements, "question", "当察看这事");
@@ -537,9 +597,7 @@ function renderSpeech(
       if (context.aphorismMode) {
         const category = strippedElement(elements, "category", "如此行", [/^凡/u, /的$/u]);
         const result = strippedElement(elements, "result", "得着相应的结果", [/^必/u]);
-        return context.storyAnchorMode
-          ? renderCuvStoryAphorism(category, result)
-          : renderCuvAphorism(category, result);
+        return renderCuvAphorism(category, result);
       }
       return `凡${strippedElement(elements, "category", "如此行", [/^凡/u, /的$/u])}的，必${strippedElement(elements, "result", "得着相应的结果", [/^必/u])}。`;
     case "definition": {
@@ -770,6 +828,9 @@ function renderNarration(
           ? action.replace(/^看见/u, `看见${objectTarget}的`)
           : action;
         return `${actor || "那人"}${observed}${result ? `，就${result}` : ""}。`;
+      }
+      if (result && /^(?:称赞|赞扬|夸奖|责备|斥责|感谢)$/u.test(action)) {
+        return `${actor || "那人"}${previousSpeechSpeaker ? "听见这话" : "看见这事"}${target ? `，就转向${target}` : ""}，${action}${result}。`;
       }
       return `${actor || "那人"}${previousSpeechSpeaker ? "听见这话" : "看见这事"}${target ? `，就转向${target}` : ""}，${action}${result ? `；${result}` : ""}。`;
     case "indirect_speech":
@@ -1083,6 +1144,9 @@ const UNSUPPORTED_STORY_MORALS = [
   "仇恨",
   "怀恨",
   "羞辱",
+  "懒惰",
+  "贪财",
+  "贪婪",
 ] as const;
 
 const SPECIALIZED_INTENT_EVIDENCE: Partial<Record<SpeechIntentId, RegExp>> = {
@@ -1091,6 +1155,7 @@ const SPECIALIZED_INTENT_EVIDENCE: Partial<Record<SpeechIntentId, RegExp>> = {
   courtesy_refusal: /推辞|不收|拒收|只收|客气|何必/u,
   self_identification: /我是|我叫|我名叫|报上姓名|自报姓名/u,
   reputation: /名声|名望|有名|听说|略知/u,
+  offer_help: /帮助|帮忙|替你|替他|替她|代为|代办|我来|交给我|只管.{0,12}(?:照顾|回去|歇息)/u,
   reassurance: /踏实|安心|放心|心里.{0,8}安|有.{0,8}这句话/u,
   approval: /痛快|爽快|直爽|喜欢.{0,8}(?:脾气|性情|说法)/u,
   status_observation: /名声|名望|有名|孝敬|尊重/u,
@@ -1156,8 +1221,8 @@ function extractGiftRoles(source: string) {
   };
 }
 
-function isGroundedStoryDeclaration(unit: Extract<ScriptureSkeletonUnit, { kind: "declaration" }>, source: string) {
-  const renderedElements = Object.values(unit.elements).join("，");
+function isGroundedStoryRule(elements: SkeletonSlots, source: string) {
+  const renderedElements = Object.values(elements).join("，");
   const normalizedSource = normalizeStoryFactText(source);
   const unsupported = UNSUPPORTED_STORY_MORALS.some(
     (term) => renderedElements.includes(term) && !source.includes(term),
@@ -1169,19 +1234,163 @@ function isGroundedStoryDeclaration(unit: Extract<ScriptureSkeletonUnit, { kind:
   return matched.length / tokens.length >= 0.45;
 }
 
+function isGroundedStoryDeclaration(unit: Extract<ScriptureSkeletonUnit, { kind: "declaration" }>, source: string) {
+  return isGroundedStoryRule(unit.elements, source);
+}
+
+function reflectionEvidenceIsSupported(evidence: string, source: string) {
+  const normalizedEvidence = normalizeStoryFactText(evidence);
+  const normalizedSource = normalizeStoryFactText(source);
+  if (!normalizedEvidence) return false;
+  if (normalizedSource.includes(normalizedEvidence)) return true;
+  const tokens = storyContentTokens(evidence);
+  if (!tokens.length) return false;
+  const matched = tokens.filter((token) => normalizedSource.includes(normalizeStoryFactText(token)));
+  return matched.length / tokens.length >= 0.72;
+}
+
+function reflectionFieldsAreGrounded(reflection: ScriptureReflection, source: string) {
+  if (reflection.mode === "neutral" && reflection.relation === "neutral_record") {
+    return reflection.evidence.some((item) => reflectionEvidenceIsSupported(item, source));
+  }
+  if (!reflection.actor || !reflection.behavior || !reflection.outcome) return false;
+  const normalizedSource = normalizeStoryFactText(source);
+  const fieldCoverage = (value: string) => {
+    const tokens = storyContentTokens(value);
+    if (!tokens.length) return 0;
+    const matched = tokens.filter((token) => normalizedSource.includes(normalizeStoryFactText(token)));
+    return matched.length / tokens.length;
+  };
+  return (
+    normalizedSource.includes(normalizeStoryFactText(reflection.actor)) &&
+    fieldCoverage(reflection.behavior) >= 0.55 &&
+    fieldCoverage(reflection.outcome) >= 0.45
+  );
+}
+
+function inferLegacyReflection(elements: SkeletonSlots): ScriptureReflection {
+  const behavior = cleanSlot(elements.category, 180);
+  const outcome = cleanSlot(elements.result, 180);
+  const source = `${behavior}，${outcome}`;
+  const relation: ReflectionRelation = /帮助|照顾|扶持|邻居|邻里|顾念/u.test(source)
+    ? "care_for_others"
+    : /小事|忠心|守信|归还|拒收/u.test(source)
+      ? "small_faithfulness"
+      : /劳苦|疲惫|坚持|忍耐|完成|交付/u.test(source)
+        ? "effort_harvest"
+        : /自高|骄傲|狂妄|轻看/u.test(source)
+          ? "self_exaltation"
+          : /怒气|发怒|争吵|动手|威胁|伤害/u.test(source)
+            ? "anger_warning"
+            : /实话|诚实|说谎|言语/u.test(source)
+              ? "speech_truth"
+              : /时候|时辰|期限|日期/u.test(source)
+                ? "time_and_season"
+                : "cause_result";
+  const behaviorPolarity = classifyBehaviorPolarity(behavior);
+  const outcomePolarity = classifyOutcomePolarity(outcome);
+  const polarity: ReflectionPolarity = behaviorPolarity === "neutral"
+    ? outcomePolarity
+    : behaviorPolarity;
+  return {
+    enabled: true,
+    mode: polarity === "negative" ? "warn" : "commend",
+    actor: "这人",
+    behavior,
+    outcome,
+    relation,
+    polarity,
+    evidence: [],
+  };
+}
+
+function reflectionSemanticIssues(reflection: ScriptureReflection, source: string) {
+  const issues: string[] = [];
+  if (!reflection.enabled) return issues;
+  if (!reflection.actor || !reflection.behavior || !reflection.outcome) {
+    issues.push("故事判词缺少人物、具体行为或实际结果");
+  }
+  if (!reflection.evidence.length) {
+    issues.push("故事判词缺少原文证据");
+  } else if (!reflection.evidence.every((item) => reflectionEvidenceIsSupported(item, source))) {
+    issues.push("故事判词的 evidence 不是原文原句或可靠摘录");
+  }
+  if (reflection.actor && !normalizeStoryFactText(source).includes(normalizeStoryFactText(reflection.actor))) {
+    issues.push("故事判词评价了原文中不存在的人物");
+  }
+  if (!reflectionFieldsAreGrounded(reflection, source)) {
+    issues.push("故事判词的行为或结果缺少原文依据");
+  }
+
+  const behaviorTone = classifyBehaviorPolarity(reflection.behavior);
+  const outcomeTone = classifyOutcomePolarity(reflection.outcome);
+  if (reflection.mode === "commend" && behaviorTone === "negative") {
+    issues.push("故事判词把负面行为写成了称许");
+  }
+  if (reflection.mode === "warn" && behaviorTone === "positive") {
+    issues.push("故事判词把正面行为写成了警戒");
+  }
+  if (reflection.polarity === "positive" && behaviorTone === "negative") {
+    issues.push("故事判词的褒贬方向与行为相反");
+  }
+  if (reflection.polarity === "negative" && behaviorTone === "positive" && outcomeTone !== "negative") {
+    issues.push("故事判词无依据地贬斥正面行为");
+  }
+  if (
+    reflection.relation === "self_exaltation" &&
+    !/自高|骄傲|狂妄|抬高自己|高看自己|轻看/u.test(reflection.behavior)
+  ) {
+    issues.push("凡自高者降卑的骨架只能用于原文明确的自高行为");
+  }
+  if (
+    reflection.relation === "anger_warning" &&
+    !/怒|争吵|冲突|威胁|动手|伤害|报复|扑|刺|打/u.test(reflection.behavior)
+  ) {
+    issues.push("怒气骨架只能用于原文明确的愤怒、威胁或伤害行为");
+  }
+  if (
+    reflection.relation === "value_comparison" &&
+    reflection.polarity !== "positive"
+  ) {
+    issues.push("美名胜过财物的骨架只能用于受到称许的行为");
+  }
+  const relationSource = `${reflection.behavior}，${reflection.outcome}`;
+  const relationEvidence: Partial<Record<ReflectionRelation, RegExp>> = {
+    value_comparison: /诚实|归还|拒收|守信|清白|美名|名声|称赞|感谢|尊重|珍贵|胜过/u,
+    effort_harvest: /劳苦|疲惫|坚持|忍耐|不放弃|不灰心|反复|重新|多次|按时|终于|完成|交付/u,
+    care_for_others: /帮助|照顾|顾念|扶起|扶持|代办|送药|搬运|邻居|邻里|他人/u,
+    small_faithfulness: /小事|细节|忠心|守信|责任|托付|按时|归还|原样|拒收/u,
+    time_and_season: /时候|时辰|日期|期限|清晨|晚上|午后|第二天|等待|按时/u,
+    speech_truth: /说|回答|承认|实话|诚实|真相|谎言|隐瞒|应允|否认/u,
+    loss_and_gain: /舍弃|放下|失去|牺牲|让出|拒绝所得|不求回报|保全/u,
+    parallel: /如同|好像|一样|仿佛|两地|两处|彼此相应/u,
+  };
+  const requiredEvidence = relationEvidence[reflection.relation];
+  if (requiredEvidence && !requiredEvidence.test(relationSource)) {
+    issues.push(`故事判词的 ${reflection.relation} 关系与具体行为、结果不相称`);
+  }
+  return [...new Set(issues)];
+}
+
 /**
  * The model only identifies facts. This pass removes unsupported specialist
  * frames and repairs an unambiguous gift direction before any biblical wording
  * is rendered.
  */
 export function groundScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source: string) {
-  if (classifyScriptureSource(source) !== "story") return plan;
+  if (classifyScriptureSource(source) !== "story") return { ...plan, reflection: undefined };
   const giftRoles = extractGiftRoles(source);
   const units: ScriptureSkeletonUnit[] = [];
+  let legacyReflection: ScriptureReflection | undefined;
 
   for (const unit of plan.units) {
     if (unit.kind === "declaration") {
-      if (unit.intent === "general_rule" && !isGroundedStoryDeclaration(unit, source)) continue;
+      if (unit.intent === "general_rule") {
+        if (isGroundedStoryDeclaration(unit, source) && !legacyReflection) {
+          legacyReflection = inferLegacyReflection(unit.elements);
+        }
+        continue;
+      }
       units.push(unit);
       continue;
     }
@@ -1192,6 +1401,12 @@ export function groundScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source:
 
     const evidence = SPECIALIZED_INTENT_EVIDENCE[unit.intent];
     if (evidence && !evidence.test(source)) continue;
+    if (unit.intent === "general_rule") {
+      if (isGroundedStoryRule(unit.elements, source) && !legacyReflection) {
+        legacyReflection = inferLegacyReflection(unit.elements);
+      }
+      continue;
+    }
 
     if (
       unit.intent === "courtesy_gift" &&
@@ -1254,23 +1469,6 @@ export function groundScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source:
     }
   }
 
-  const hasGeneralAnchor = units.some(
-    (unit) =>
-      (unit.kind === "declaration" || unit.kind === "speech") &&
-      unit.intent === "general_rule",
-  );
-  if (
-    !hasGeneralAnchor &&
-    /帮助|照顾|照应|扶起|扶持|顾念|邻居|邻里/u.test(source) &&
-    !/欺骗|伤害|仇恨|争吵|纷争|报复/u.test(source)
-  ) {
-    units.push({
-      kind: "declaration",
-      intent: "general_rule",
-      elements: { category: "帮助邻居", result: "彼此照应" },
-    });
-  }
-
   for (let index = 1; index < units.length; index += 1) {
     const current = units[index];
     const previous = units[index - 1];
@@ -1312,7 +1510,42 @@ export function groundScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source:
     }
   }
 
-  return { ...plan, units };
+  const proposedReflection = plan.reflection ?? legacyReflection;
+  const reflection = proposedReflection && (
+    proposedReflection === legacyReflection ||
+    reflectionSemanticIssues(proposedReflection, source).length === 0
+  )
+    ? proposedReflection
+    : undefined;
+  return { ...plan, units, reflection };
+}
+
+export function assessScriptureStoryPlan(plan: ScriptureSkeletonPlan, source: string) {
+  const sourceGenre = classifyScriptureSource(source);
+  if (sourceGenre === "aphorism") {
+    if (renderRecognizableSourceAphorism(source)) return [];
+    const aphorismUnits = plan.units.filter(
+      (unit) => unit.kind === "declaration" && ["general_rule", "contrast", "blessing"].includes(unit.intent),
+    );
+    const issues: string[] = [];
+    if (aphorismUnits.length !== 1 || plan.units.length !== 1) {
+      issues.push("短格言只能保留一个最合适的完整名句骨架，不得拼接多条解释");
+    }
+    for (const unit of aphorismUnits) {
+      if (unit.kind !== "declaration" || unit.intent !== "general_rule") continue;
+      if (!unit.elements.category || !unit.elements.result) {
+        issues.push("格言必须提取清楚的行为与结果");
+      } else if (!isGroundedStoryRule(unit.elements, source)) {
+        issues.push("格言的行为或结果偏离输入，不得添加懒惰、贪婪、刑罚等原文没有的判断");
+      }
+    }
+    return [...new Set(issues)];
+  }
+  if (sourceGenre !== "story") return [];
+  if (!plan.reflection?.enabled) {
+    return ["故事缺少结构化结尾判词：必须提交人物、行为、结果、语义关系和原文证据"];
+  }
+  return reflectionSemanticIssues(plan.reflection, source);
 }
 
 export type ScriptureStoryAssessment = {
@@ -1424,6 +1657,7 @@ function isAphorismFriendlyPlan(plan: ScriptureSkeletonPlan, source = "") {
 
 function renderPlanClosure(plan: ScriptureSkeletonPlan, source = "") {
   if (isStandaloneAphorismPlan(plan, source)) return "";
+  if (plan.reflection?.enabled) return "";
   const hasConflict = plan.units.some((unit) => {
     if (unit.kind === "speech") {
       return ["insult_challenge", "exit_threat", "coercion", "death_threat"].includes(
@@ -1444,7 +1678,7 @@ function renderPlanClosure(plan: ScriptureSkeletonPlan, source = "") {
   // colophon makes an ordinary short story sound mechanically generated. Keep
   // factual closures for compact, result-only records such as a technical fix or
   // a single departure event.
-  if (plan.units.length > 2 && /记事|寓言|轶事/u.test(textType)) return "";
+  if (plan.units.length > 2 && /故事|记事|寓言|轶事/u.test(textType)) return "";
 
   if (/通知|公告|晓谕/u.test(textType)) return "所要晓谕的，就是这些。";
   if (/条例|规则|清单/u.test(textType)) return "所列的条例，就是这些。";
@@ -1474,6 +1708,10 @@ function renderPlanClosure(plan: ScriptureSkeletonPlan, source = "") {
 }
 
 export function renderScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source = "") {
+  if (source && classifyScriptureSource(source) === "aphorism") {
+    const recognizable = renderRecognizableSourceAphorism(source);
+    if (recognizable) return recognizable;
+  }
   plan = groundScriptureSkeletonPlan(plan, source);
   plan = dedupeHistoricalSpeech(condenseHistoricalOpening(repairHistoricalPlan(plan)));
   const renderedUnits: string[] = [];
@@ -1562,7 +1800,14 @@ export function renderScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source 
     } else current += rendered;
   }
   if (current) paragraphs.push(current);
-  return paragraphs.join("\n\n").trim();
+  const body = paragraphs.join("\n\n").trim();
+  const isStory = source && classifyScriptureSource(source) === "story";
+  const reflection = isStory && plan.reflection?.enabled
+    ? renderStoryReflection(plan.reflection)
+    : isStory && !/这事的结局，就是这样。$/u.test(body)
+      ? renderNeutralStoryClosure()
+      : "";
+  return reflection ? `${body}\n\n${reflection}` : body;
 }
 
 export function buildSkeletonIdentificationPrompt(source: string, previousIssues: string[] = []) {
@@ -1572,7 +1817,7 @@ export function buildSkeletonIdentificationPrompt(source: string, previousIssues
     detectedGenre === "story" ? buildCuvStoryTemplatePrompt(source) : "";
   const shortStoryRule =
     sourceLength >= 100 && sourceLength <= 200
-      ? `\n20. 本次输入为 ${sourceLength} 字。若它是有人物与事件推进的短故事，先完整保留人物、物品、时间、目的、赠与或借贷方向、动作结果和结局，再安排一处最合适的“名句载体”；只有原文确实存在第二个独立而清楚的因果时，才可安排第二处。不得为了凑名句删去疾病、药物、钱财、地点、去向、感谢、伤害对象等事实，也不得把赠送者与收受者调换。declaration:general_rule 中的每个实义词和结果都必须能在原文找到依据；若只能靠“过错、纷争、报应、审判、刑罚”等原文没有的概念才能套入，就不要建立 declaration。每个源句至少要有一个 unit 承载其中未重复的关键事实。可补入一个不改变因果的场面过渡，但不得增加新动机、新冲突或新结局。开场从简，名句集中在转折或结果。`
+      ? `\n20. 本次输入为 ${sourceLength} 字。若它是有人物与事件推进的短故事，先完整保留人物、物品、时间、目的、赠与或借贷方向、动作结果和结局，再填写顶层 reflection。reflection.behavior 必须是故事中最值得评价的具体行为或选择，outcome 必须是原文已经发生的直接结果；evidence 必须逐字摘录一至三段原文，不得改写。不得为了凑名句删去疾病、药物、钱财、地点、去向、感谢、伤害对象等事实，也不得把赠送者与收受者调换。若某种评价只能靠“过错、纷争、报应、审判、刑罚”等原文没有的概念成立，就改用 neutral_record，不得硬套。每个源句至少要有一个 unit 承载其中未重复的关键事实。可补入一个不改变因果的场面过渡，但不得增加新动机、新冲突或新结局。开场从简，判词固定由服务器放在结尾。`
       : "";
   const retryRule = previousIssues.length
     ? `\n上一次结构方案未通过服务器事实审查，必须逐项修正：\n- ${previousIssues.slice(0, 10).join("\n- ")}\n不要解释，只重新输出完整 JSON。\n`
@@ -1592,7 +1837,17 @@ ${storyTemplatePrompt}
     {"kind":"narration","frame":"arrival/action/reaction/indirect_speech/introduction/transition/outcome/setting","actor":"","target":"","action":"不含主语的完整动作短语","object":"","place":"","time":"","matter":"","result":""},
     {"kind":"speech","intent":"对白功能","speaker":"","addressee":"","delivery":"said/answered/asked/warned/commanded/cried","elements":{"元素名":"来自输入的短语"}},
     {"kind":"declaration","intent":"对白功能","elements":{"元素名":"来自输入的短语"}}
-  ]
+  ],
+  "reflection": {
+    "enabled": true,
+    "mode": "commend/admonish/warn/lament/neutral",
+    "actor": "被评价的人物",
+    "behavior": "原文支持的具体行为或选择",
+    "outcome": "原文已经发生的直接结果",
+    "relation": "parallel/value_comparison/effort_harvest/cause_result/character_fruit/self_exaltation/care_for_others/small_faithfulness/anger_warning/time_and_season/speech_truth/loss_and_gain/neutral_record",
+    "polarity": "positive/negative/mixed/neutral",
+    "evidence": ["逐字摘录的原文片段"]
+  }
 }
 
 可用对白功能及应填元素：
@@ -1607,7 +1862,7 @@ ${storyTemplatePrompt}
 - relay_request(target,matter), warning_pride(warning), youth_defiance(person,quality)
 - exit_threat(condition,consequence), method_challenge(action)
 - coercion(positiveCondition,negativeCondition,result), boast(action), death_threat(target)
-- request(matter,action,deadline,result), refusal(matter,action,condition,advice), command(action,prohibition), promise(action)
+- request(matter,action,deadline,result), refusal(matter,action,condition,advice), command(action,prohibition), promise(action), blessing(subject,wish)
 - question(question,more), contrast(rejected,asserted), general_rule(category,result)
 - definition(subject,name,details), factual_statement(subject,fact,more), enumeration(subject,items)
 - guarantee(condition,penalty), trade_price(item,unit,price), curse_penalty(condition,subject,penalty)
@@ -1621,7 +1876,7 @@ ${storyTemplatePrompt}
 5. introduction.count 只填“一、两、三”等数词，不填“个、人、个人”；names 只填姓名；relation 只填“我的兄弟、同伴、同事”等关系。死亡威胁的 target 只填被威胁者，不填“你的命”或“弄死”。
 6. narration.action 填不含主语、但包含对象和去向的完整动作短语，例如“从手中取出文件，摆在负责人面前”；不得只填“叫了一声”，必须填“叫目标人物的名字”。
 7. 同一动作只建立一个 unit；result 只填动作之外的新后果，不得把“甲刺伤乙”再配上“乙受伤”，也不得把“甲制住乙”再配上“乙被制住”。
-8. 找不到精确功能时，选择最接近的 request/refusal/command/promise/question/contrast/general_rule/agreement/disagreement；“心里踏实”使用 reassurance，“痛快、喜欢这种脾气”使用 approval，不得使用 agreement。
+8. 找不到精确功能时，选择最接近的 request/refusal/command/promise/question/contrast/general_rule/agreement/disagreement；“心里踏实”使用 reassurance，“痛快、喜欢这种脾气”使用 approval，不得使用 agreement。以“祝、愿、愿你、祝你”表达祝愿的短句使用 blessing(subject,wish)，不得当成事实说明。
 9. delivery=answered 只用于直接回答上一人的问题或主张；普通接续使用 said，质问使用 asked，威胁喊叫使用 cried。龙虎等两个并列类别必须使用 paired_dominance，不得塞入 general_rule。
 10. 凡“扑、刺伤、制住、交给、带走、叫名字”等及物动作，action 必须包含承受者；例如“用工具损伤乙”，不可只填“用工具损伤”。mediation_request.result 只能填真实目的，不得只填受益人的姓名。
 11. mediation_request 专用于“甲请求乙为了丙而停止、允许或改变某事”，speaker 必须是甲，addressee 必须是乙，beneficiary 必须是丙；relay_request 只用于“甲叫乙传话给丙，让丙亲自来找甲”。二者不可混用。借钱关系必须明确谁向谁借、是否承诺归还。
@@ -1629,7 +1884,8 @@ ${storyTemplatePrompt}
 13. 每一个保留的 speech 都只填一个清楚的发言功能；可以改变表面说法以适配固定圣经骨架，但不得把劝诫交给辩护者、把拒绝者写成应允者、把威胁者和被威胁者调换。
 14. 只有原文确实对行为、品格、选择与后果作普遍判断时，才把没有对白的短文写成“格言”或“观点”，并使用 general_rule(category,result) 或 contrast(rejected,asserted)。不能因为输入只有一句话就判定为格言。category 只填最核心的行为、品格或处境，result 只填原文已有的后果，不得把“凡、必、有福、乃是”等骨架词塞入元素。
 15. 格言必须保持原文的褒贬和因果方向：值得鼓励的行为配正面结果，应当禁止的行为配负面后果；不得把“不离开朋友、诚实、忍耐”等善行整理成应当禁止之事，也不得把“贪图捷径、欺骗、骄傲”等恶行整理成应当持守之事。category 与 result 都要写成独立、明确、没有双重否定的短语。格言最终应像一节真实经文：短促、完整、通常只有一至两个分句；只靠拢一个最合适的著名句式，不得把几处经文拼成解释段落。
-16. 长篇故事也可以使用格言骨架。遇到明确的因果、报应、骄傲、忍耐、取舍、量人、撒种收取、树与果子、光暗、道路、根基、时候、言语、怒气或朋友关系时，可以把相邻情节合并为 declaration:general_rule，使正文出现一至四处格言式判断；也可以把关键对白的意思靠拢到合适格言。为了节目效果可以增强比喻和复沓，但不得调换人物阵营、动作归属、伤害对象或因果方向。
+16. 每一篇人物故事都必须填写且只填写一个顶层 reflection；故事的 units 中不得再建立 general_rule。AI 只提取语义，不得选择、拼接或仿写经文。actor 填被评价的人物；behavior 填原文中的具体行为；outcome 填原文已经发生的直接结果；relation 只描述二者的逻辑形状；evidence 必须逐字复制原文一至三处。先比较全篇关键转折，只选最能概括主旨的一项。出现钱不等于贪财，出现争执不等于骄傲，失败不等于懒惰，收礼不等于贪婪，拒绝危险要求不等于悖逆，受害者不可被判为有错；原文没有结果时不得写“必得、必败、必受报应”。若没有安全、明确的寓意，mode、relation、polarity 分别填 neutral、neutral_record、neutral，并只概括真实经过。非故事输入一律填写 enabled:false，其他字段留空。
+    relation 必须按逻辑而非关键词选择：长期劳苦、坚持或反复作工才用 effort_harvest；帮助、照顾、扶持他人才用 care_for_others；诚实、守信、归还、拒收酬谢而得到称赞可用 value_comparison 或 small_faithfulness；明确自高才用 self_exaltation；明确发怒、威胁、伤害才用 anger_warning；言语真伪才用 speech_truth；舍弃与所得才用 loss_and_gain；日期、期限和等待才用 time_and_season；普通行为导致实际结果优先用 cause_result，不能为了套名句夸大行为。
 17. 定义句和知识说明若出现“是、指、称为、以……为……、由……组成、包括、属于、用于、标准、规范”等结构，textType 必须写“定义”或“知识说明”，并使用 definition(subject,name,details) 或 factual_statement(subject,fact,more)。details 必须保留“以甲为乙”等关系及被定义名称，不得使用 general_rule，也不得添加“有福、有祸、凡、必、刑罚、审判”。
 18. 只输出 JSON，不输出 Markdown。
 19. 帮助类对白必须把双方动作拆清：recipientAction 填受帮助者先去做的事，action 填说话者答应代办的事。例如“你先照顾病人，我替你送东西”应分别填“回去照顾病人”和“把东西送到指定地方”，不得压缩成空泛的“有什么事只管说”。礼物情节必须确认谁带来、谁收下；“甲带礼物来，乙只收一件”中，courtesy_gift 的 speaker 只能是甲，乙的收取应写 narration，不得让乙说“我把礼物给你”。间接说明疾病、送药、欠款、目的和原因时，使用 indirect_speech.matter 完整保留这些关系。
@@ -1658,13 +1914,9 @@ export function renderEmergencyScripture(source: string) {
       .replace(/回家时/gu, "及至回家的时候")
       .replace(/下班回家/gu, "作完当日的工，回家去");
     if (!/[。！？]$/u.test(story)) story += "。";
-    if (
-      /帮助|照顾|照应|扶起|扶持|顾念|邻居|邻里/u.test(source) &&
-      !/各人不要单顾自己的事/u.test(story)
-    ) {
-      story += "各人不要单顾自己的事，也要顾别人的事。";
-    }
-    return story;
+    return /这事的结局，就是这样。$/u.test(story)
+      ? story
+      : `${story}\n\n${renderNeutralStoryClosure()}`;
   }
   const cleaned = cleanSlot(source, 3000);
   return `论到这事，所记的乃是这样：${cleaned}。凡听见这话的，都当察看其中的缘故。`;
