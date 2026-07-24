@@ -764,6 +764,13 @@ export function renderCuvAphorism(category: string, result: string) {
  * sentence's contour here; standalone maxims remain compact and natural.
  */
 export function renderCuvStoryAphorism(category: string, result: string) {
+  const source = `${category}，${result}`;
+  if (
+    /帮助|照顾|照应|扶起|扶持|顾念|邻舍|邻里|邻居/u.test(source) &&
+    !/欺骗|伤害|仇恨|争吵|纷争|报复/u.test(source)
+  ) {
+    return "各人不要单顾自己的事，也要顾别人的事。";
+  }
   const skeleton = selectCuvAphorismSkeleton(category, result);
   const highRetention = renderHighRetentionMaxim(skeleton, category, result);
   if (highRetention) return highRetention;

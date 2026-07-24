@@ -30,7 +30,9 @@ test("route uses bounded element recognition and deterministic skeleton renderin
   assert.match(route, /parseScriptureSkeletonPlan/);
   assert.match(route, /renderScriptureSkeletonPlan/);
   assert.match(route, /renderEmergencyScripture/);
-  assert.match(route, /attempt < 2/);
+  assert.match(route, /attempt < 3/);
+  assert.match(route, /assessScriptureStoryResult/);
+  assert.match(route, /previousIssues/);
   assert.match(route, /temperature: 0\.05/);
   assert.doesNotMatch(route, /repairScriptureResult/);
   assert.doesNotMatch(route, /polishScriptureDraft/);

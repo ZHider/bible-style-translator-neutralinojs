@@ -19,7 +19,9 @@ import {
   renderSafeFactualSource,
 } from "@/lib/scriptureGenre";
 import {
+  assessScriptureStoryResult,
   buildSkeletonIdentificationPrompt,
+  groundScriptureSkeletonPlan,
   parseScriptureSkeletonPlan,
   renderEmergencyScripture,
   renderScriptureSkeletonPlan,
@@ -334,27 +336,54 @@ export async function POST(request: NextRequest) {
 
     if (mode === "original") {
       let plan = null;
-      for (let attempt = 0; attempt < 2 && Date.now() < deadlineAt - 3000; attempt += 1) {
+      let bestPlan = null;
+      let bestScore = -1;
+      let previousIssues: string[] = [];
+      for (let attempt = 0; attempt < 3 && Date.now() < deadlineAt - 5000; attempt += 1) {
         try {
           const rawPlan = await callDeepSeek({
             apiKey,
             deadlineAt,
             systemPrompt:
               "你是和合本风格改写器的结构编辑。先保持输入原有的文本类型：定义仍是定义，事实仍是事实，通知仍是通知，格言仍是格言，故事才整理成故事。只输出严格 JSON，不得选择经文，不得写正文，不得凭空添加祝福、咒诅、因果或评价。",
-            userPrompt: buildSkeletonIdentificationPrompt(text),
+            userPrompt: buildSkeletonIdentificationPrompt(text, previousIssues),
             maxTokens,
             temperature: 0.05,
           });
-          plan = parseScriptureSkeletonPlan(rawPlan);
-          if (plan) break;
+          const parsedPlan = parseScriptureSkeletonPlan(rawPlan);
+          if (!parsedPlan) {
+            previousIssues = ["返回内容不是可解析的完整结构 JSON"];
+            continue;
+          }
+          const groundedPlan = groundScriptureSkeletonPlan(parsedPlan, text);
+          const candidateResult = renderScriptureSkeletonPlan(groundedPlan, text);
+          const assessment = assessScriptureStoryResult(text, candidateResult);
+          if (assessment.score > bestScore) {
+            bestScore = assessment.score;
+            bestPlan = groundedPlan;
+          }
+          if (assessment.acceptable) {
+            plan = groundedPlan;
+            break;
+          }
+          previousIssues = assessment.issues;
         } catch (error) {
           if (shouldExposeUpstreamError(error)) throw error;
+          previousIssues = ["上一次结构生成中断，必须重新输出完整 JSON"];
         }
       }
 
-      const rendered = plan
+      plan ??= bestPlan;
+
+      let rendered = plan
         ? renderScriptureSkeletonPlan(plan, text)
         : renderEmergencyScripture(text);
+      if (
+        sourceGenre === "story" &&
+        !assessScriptureStoryResult(text, rendered).acceptable
+      ) {
+        rendered = renderEmergencyScripture(text);
+      }
       return NextResponse.json(finalizeScriptureResult(text, rendered));
     }
 

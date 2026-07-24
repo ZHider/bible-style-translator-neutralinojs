@@ -297,6 +297,18 @@ test("slot sanitation is generic across notices, technical text, trade, guarante
         { kind: "speech", intent: "self_identification", speaker: "陈明", elements: { name: "我叫陈明" } },
         { kind: "speech", intent: "death_threat", speaker: "甲", addressee: "王五", elements: { target: "王五的命" } },
         { kind: "speech", intent: "question", speaker: "乙", elements: { question: "岂不当检查日志吗", more: "何况告警已经出现呢" } },
+        {
+          kind: "speech",
+          intent: "refusal",
+          speaker: "李婷",
+          addressee: "赵师傅",
+          elements: {
+            matter: "这钱",
+            action: "收下",
+            condition: "你家里人还在担心",
+            advice: "快回去报平安",
+          },
+        },
       ],
     }),
   );
@@ -320,6 +332,7 @@ test("slot sanitation is generic across notices, technical text, trade, guarante
     "王五的命的命",
     "岂不岂不",
     "何况何况",
+    "你若你",
   ]) {
     assert.doesNotMatch(output, new RegExp(duplicated, "u"));
   }
@@ -329,6 +342,7 @@ test("slot sanitation is generic across notices, technical text, trade, guarante
   assert.match(output, /每一斤作价三元/);
   assert.match(output, /人所称呼我的名乃是陈明/);
   assert.match(output, /我必夺取你的命/);
+  assert.match(output, /论到这钱，我断不收下；你家里人若还在担心，就当快回去报平安/);
 });
 
 test("generic action recovery uses surrounding roles without relying on one story", () => {
@@ -407,7 +421,14 @@ test("story actions preserve conditional word order and explicit time", () => {
     JSON.stringify({
       textType: "职场记事",
       units: [
-        { kind: "narration", frame: "arrival", actor: "小周", place: "公司" },
+        {
+          kind: "narration",
+          frame: "arrival",
+          actor: "小周",
+          action: "带着修改好的方案来到公司",
+          place: "公司",
+          time: "清晨",
+        },
         {
           kind: "narration",
           frame: "action",
@@ -433,20 +454,23 @@ test("story actions preserve conditional word order and explicit time", () => {
 
   assert.ok(plan);
   const output = renderScriptureSkeletonPlan(plan);
+  assert.match(output, /到了清晨，小周带着修改好的方案来到公司/);
   assert.match(output, /小周虽疲惫却没有争辩/);
   assert.match(output, /到了午后，小周就按时交出新方案/);
   assert.doesNotMatch(output, /小周就虽疲惫|所记的事，就是这些/);
 });
 
-test("100-to-200-character stories request multiple recognizable anchor carriers", () => {
+test("100-to-200-character stories request grounded recognizable anchor carriers", () => {
   const source =
     "清晨，小周带着修改好的方案来到公司，把文件交给主管。主管看完后说预算仍然太高，叫他下午以前再改一版。小周虽然疲惫，却没有争辩，回到座位重新核对数字。到了午后，他按时交出新方案，主管看见合用，就点头通过了。";
   const prompt = buildSkeletonIdentificationPrompt(source);
 
   assert.match(prompt, /本次输入为 102 字/);
-  assert.match(prompt, /至少两处“名句载体”/);
-  assert.match(prompt, /一至两个 declaration:general_rule/);
-  assert.match(prompt, /可补入一至两个不改变因果的微小动作或场面过渡/);
+  assert.match(prompt, /一处最合适的“名句载体”/);
+  assert.match(prompt, /不得把赠送者与收受者调换/);
+  assert.match(prompt, /每个源句至少要有一个 unit/u);
+  assert.match(prompt, /只有原文确实存在第二个独立而清楚的因果时/u);
+  assert.match(prompt, /可补入一个不改变因果的场面过渡/);
 });
 
 test("an unfinished threat is not falsely closed as a completed event", () => {

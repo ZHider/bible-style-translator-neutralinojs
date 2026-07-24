@@ -328,7 +328,31 @@ function renderSpeech(
     case "reputation":
       return `你的美名已经传在众人中间，胜过许多财物；我也听见人说，你${strippedElement(elements, "qualities", "所行的有情有义", [/^你/u])}。`;
     case "offer_help":
-      return `你若向我求什么事，只管告诉我；凡我手所能行的，我必为你成就。`;
+      {
+        const recipientAction = strippedElement(
+          elements,
+          "recipientAction",
+          "",
+          [/^(?:你)?(?:先|只管)/u],
+        );
+        let action = strippedElement(
+          elements,
+          "action",
+          strippedElement(elements, "matter", "", [/^(?:替你|帮你)/u]),
+          [/^(?:我)?(?:替你|帮你|为你)/u],
+        );
+        action = action.replace(/^把(.{1,24}?)替你(送到|带到|搬到|交给)/u, "把$1$2");
+        if (recipientAction && action) {
+          const transfer = action.match(/^把(.{1,24}?)(送到|带到|搬到|交给)(.+)$/u);
+          return transfer
+            ? `你只管${recipientAction}；论到${transfer[1]}，我必替你${transfer[2]}${transfer[3]}。`
+            : `你只管${recipientAction}；论到${action}，我必替你成就。`;
+        }
+        if (action) {
+          return `论到${action}，你只管交在我手中；凡我手所能行的，我必替你成就。`;
+        }
+        return `你若向我求什么事，只管告诉我；凡我手所能行的，我必为你成就。`;
+      }
     case "reassurance":
       return `${strippedElement(elements, "basis", "你所说的话", [/^有了?/u, /^听了?/u])}坚立在我面前，我的心便安稳，不至摇动。`;
     case "approval":
@@ -440,9 +464,50 @@ function renderSpeech(
         return `我必夺取${renderedTarget}的命。`;
       }
     case "request":
-      return `我若在你眼前蒙恩，求你${strippedElement(elements, "action", "应允我所求的", [/^求你/u])}，好叫${strippedElement(elements, "result", "这事得以成就", [/^好叫/u])}。`;
+      {
+        const matter = strippedElement(elements, "matter", "", [/^论到/u]);
+        const deadline = strippedElement(elements, "deadline", "", [/^(?:在|于)/u, /以前$/u]);
+        const action = strippedElement(elements, "action", "应允我所求的", [/^求你/u]);
+        if (matter || deadline) {
+          const budget = matter.match(/^(.{1,20}?)(?:仍然|还是|依然)?太高$/u);
+          const statement = budget
+            ? `论到${budget[1]}，所定的仍然太高`
+            : `论到${matter || "这事"}，所定的尚未完全`;
+          return `${statement}；你当${deadline ? `在${deadline}以前` : "趁着今日"}${action}。`;
+        }
+        return `我若在你眼前蒙恩，求你${action}，好叫${strippedElement(elements, "result", "这事得以成就", [/^好叫/u])}。`;
+      }
     case "refusal":
-      return `论到${element(elements, "matter", "这事")}，我断不${strippedElement(elements, "action", "照此而行", [/^我断不/u])}。`;
+      {
+        const matter = element(elements, "matter", "这事");
+        const action = strippedElement(elements, "action", "照此而行", [/^我断不/u]);
+        const condition = strippedElement(elements, "condition", "", [/^若/u]);
+        const advice = strippedElement(
+          elements,
+          "advice",
+          strippedElement(elements, "action2", ""),
+          [/^(?:你)?(?:就|当|应当)/u],
+        );
+        if (advice) {
+          let conditionClause = "你若心中仍有挂虑";
+          if (condition) {
+            if (/^你若/u.test(condition)) conditionClause = condition;
+            else if (/^你/u.test(condition)) {
+              conditionClause = condition.replace(
+                /^你(.{1,12}?)(还在|仍在|已经|正在|尚未|仍然|还)/u,
+                "你$1若$2",
+              );
+              if (conditionClause === condition) conditionClause = `你若${condition.slice(1)}`;
+            } else conditionClause = `你若${condition}`;
+          }
+          return `论到${matter}，我断不${action}；${conditionClause}，就当${advice}。`;
+        }
+        const declinedObject = matter.match(/^(.{1,20}?)(?:我)?不能收$/u);
+        if (declinedObject && /回去|报平安|告诉|通知|照顾/u.test(action)) {
+          return `论到${declinedObject[1]}，我断不收取；你若${condition || "心中仍有挂虑"}，就当${action}。`;
+        }
+        return `论到${matter}，我断不${action}。`;
+      }
     case "command":
       return `你当${strippedElement(elements, "action", "照所吩咐的行", [/^你当/u])}；不可${strippedElement(elements, "prohibition", "违背这话", [/^不可/u])}。`;
     case "promise":
@@ -658,13 +723,34 @@ function renderNarration(
 
   switch (unit.frame) {
     case "arrival":
-      return `${time ? `到了${time}，` : "那时，"}${actor || "有人"}${place ? `来到${place}` : "来到那里"}${result ? `；${result}` : ""}。`;
+      {
+        const usablePlace = place && place !== time && !/^(?:第?[一二三四五六七八九十]+天|清晨|早晨|上午|中午|午后|下午|傍晚|晚上)$/u.test(place)
+          ? place
+          : "";
+        const statement = matter.replace(/^自己/u, "");
+        const arrivalAction = suppliedAction
+          ? usablePlace && !fullAction.includes(usablePlace)
+            ? `${fullAction}，来到${usablePlace}`
+            : fullAction
+          : usablePlace
+            ? `来到${usablePlace}`
+            : "来到那里";
+        return `${time ? `到了${time}，` : "那时，"}${actor || "有人"}${arrivalAction}${statement ? `，又说自己${statement}` : ""}${result ? `；${result}` : ""}。`;
+      }
     case "setting":
+      if (actor && suppliedAction) {
+        return `${time ? `那时正是${time}，` : "那时，"}${actor}${suppliedAction}${matter ? `；${matter}` : ""}。`;
+      }
       if (/里面|屋里/u.test(place)) {
         return `那屋里，${!matter || /已经预备妥当/u.test(matter) ? "筵席已经摆设齐备" : matter}。`;
       }
       if (/酒席前|席前/u.test(place)) return "众人在席前坐定。";
-      return `${time ? `那时正是${time}，` : "那时，"}${place ? (/中$|里$|前$|上$/u.test(place) ? place : `${place}中`) : "众人中间"}${matter || "已经预备妥当"}。`;
+      if (!matter || /已经预备妥当/u.test(matter)) {
+        if (time && place) return `那时正是${time}，事情发生在${place}。`;
+        if (time) return `那时正是${time}。`;
+        if (place) return `那时，众人正在${place}。`;
+      }
+      return `${time ? `那时正是${time}，` : "那时，"}${place ? (/中$|里$|前$|上$|下$|外$|旁$|边$|口$/u.test(place) ? place : `${place}中`) : "众人中间"}${matter || "事情正在进行"}。`;
     case "action":
       {
         const conditionalAction = /^(?:虽(?:然)?|既|因(?:为)?|仍|却|若|倘若|纵然|即便)/u.test(
@@ -676,6 +762,15 @@ function renderNarration(
         return `${speechPrefix}${timePrefix}${actorPrefix}${fullAction}${result ? `${/^(?:使|好叫|以致)/u.test(result) ? "，" : "；"}${result}` : ""}。`;
       }
     case "reaction":
+      if (/^(?:看见|听见|发现|数过|读过|检查)/u.test(action)) {
+        const objectTarget = /方案|文件|内容|结果|报告|物品|产品|钱包|礼物/u.test(target)
+          ? target
+          : "";
+        const observed = objectTarget && /^看见/u.test(action)
+          ? action.replace(/^看见/u, `看见${objectTarget}的`)
+          : action;
+        return `${actor || "那人"}${observed}${result ? `，就${result}` : ""}。`;
+      }
       return `${actor || "那人"}${previousSpeechSpeaker ? "听见这话" : "看见这事"}${target ? `，就转向${target}` : ""}，${action}${result ? `；${result}` : ""}。`;
     case "indirect_speech":
       return `${actor}${target ? `就向${target}` : "便向众人"}陈明${matter || "这事"}${result ? `，好叫人知道${result}` : ""}。`;
@@ -683,11 +778,24 @@ function renderNarration(
       return `${actor}${target ? `把${target}` : "把同来的人"}带到众人面前，说明${matter || "他们的名与关系"}。`;
     case "transition":
       return `及至${matter || "事情到了这一步"}，${actor}就${action}${result ? `；${result}` : ""}。`;
-    case "outcome":
-      if (previousFrame === "outcome") {
-        return `${actor ? `${actor}${/^眼看/u.test(fullAction) ? "只能" : "就"}` : ""}${fullAction}${result ? `；${result}` : ""}。`;
+    case "outcome": {
+      let outcomeAction = fullAction;
+      if (time) {
+        for (const prefix of [`到了${time}`, time]) {
+          if (outcomeAction.startsWith(prefix)) {
+            outcomeAction = outcomeAction
+              .slice(prefix.length)
+              .replace(/^[，,；;\s]+/u, "");
+            break;
+          }
+        }
       }
-      return `于是${actor}${fullAction}${result ? `；${result}` : ""}。`;
+      const timePrefix = time ? `到了${time}，` : "";
+      if (previousFrame === "outcome") {
+        return `${timePrefix}${actor ? `${actor}${/^眼看/u.test(outcomeAction) ? "只能" : "就"}` : ""}${outcomeAction}${result ? `；${result}` : ""}。`;
+      }
+      return `${timePrefix || "于是"}${actor}${outcomeAction}${result ? `；${result}` : ""}。`;
+    }
   }
 }
 
@@ -897,6 +1005,385 @@ function dedupeHistoricalSpeech(plan: ScriptureSkeletonPlan) {
   return { ...plan, units };
 }
 
+const STORY_TOKEN_STOP_WORDS = new Set([
+  "一个",
+  "一些",
+  "自己",
+  "他们",
+  "她们",
+  "我们",
+  "你们",
+  "这个",
+  "那个",
+  "这些",
+  "那些",
+  "已经",
+  "于是",
+  "然后",
+  "随后",
+  "便",
+  "就",
+  "又",
+  "说",
+  "说道",
+  "回答",
+  "看见",
+  "来到",
+  "那里",
+  "这里",
+  "事情",
+  "东西",
+]);
+
+const IMPORTANT_SINGLE_STORY_TOKENS = new Set([
+  "药",
+  "雨",
+  "车",
+  "刀",
+  "钱",
+  "血",
+  "火",
+  "病",
+]);
+
+const STORY_FACT_FAMILIES: readonly {
+  label: string;
+  source: RegExp;
+  result: RegExp;
+}[] = [
+  { label: "生病", source: /生病|患病|病了|病中/u, result: /生病|患病|病了|病中/u },
+  { label: "药", source: /送药|拿药|买药|药物|药品|吃药/u, result: /药/u },
+  { label: "妻子", source: /妻子|老婆|妻/u, result: /妻子|老婆|妻/u },
+  { label: "丈夫", source: /丈夫|老公/u, result: /丈夫|老公/u },
+  { label: "孩子", source: /孩子|儿子|女儿/u, result: /孩子|儿子|女儿/u },
+  { label: "雨", source: /下雨|雨中|冒雨|淋雨|雨里/u, result: /雨/u },
+  { label: "车辆", source: /电动车|自行车|摩托车|汽车|车子/u, result: /电动车|自行车|摩托车|汽车|车/u },
+  { label: "楼上", source: /楼上|楼下|上楼|下楼/u, result: /楼上|楼下|上楼|下楼/u },
+  { label: "衣服湿透", source: /衣服.{0,4}湿|衣裳.{0,4}湿|湿透/u, result: /衣服.{0,5}湿|衣裳.{0,5}湿|湿透|尽都湿/u },
+  { label: "水果", source: /水果|果篮/u, result: /水果|果子|果篮/u },
+  { label: "苹果", source: /苹果/u, result: /苹果/u },
+  { label: "道谢", source: /道谢|感谢|谢意/u, result: /道谢|感谢|谢意|称谢/u },
+  { label: "疲惫", source: /疲惫|劳累|困倦|筋疲力尽/u, result: /疲惫|劳累|困倦|劳苦|乏力/u },
+  { label: "借贷", source: /借钱|借款|欠钱|还钱|归还/u, result: /借钱|借款|欠钱|还钱|归还/u },
+  { label: "伤害", source: /刺伤|砍伤|打伤|受伤/u, result: /刺伤|砍伤|打伤|受伤|伤口/u },
+  { label: "死亡", source: /杀死|弄死|死亡|死了|夺取.{0,5}命/u, result: /杀死|死亡|死了|夺取.{0,5}命/u },
+] as const;
+
+const UNSUPPORTED_STORY_MORALS = [
+  "过错",
+  "罪恶",
+  "犯罪",
+  "纷争",
+  "争竞",
+  "审判",
+  "刑罚",
+  "报应",
+  "咒诅",
+  "灭亡",
+  "仇恨",
+  "怀恨",
+  "羞辱",
+] as const;
+
+const SPECIALIZED_INTENT_EVIDENCE: Partial<Record<SpeechIntentId, RegExp>> = {
+  introduction: /介绍|引见|认识|名叫|名字/u,
+  courtesy_gift: /礼物|赠|送给|交给|递给|带来|拿来|水果|礼品/u,
+  courtesy_refusal: /推辞|不收|拒收|只收|客气|何必/u,
+  self_identification: /我是|我叫|我名叫|报上姓名|自报姓名/u,
+  reputation: /名声|名望|有名|听说|略知/u,
+  reassurance: /踏实|安心|放心|心里.{0,8}安|有.{0,8}这句话/u,
+  approval: /痛快|爽快|直爽|喜欢.{0,8}(?:脾气|性情|说法)/u,
+  status_observation: /名声|名望|有名|孝敬|尊重/u,
+  trade_price: /价格|价钱|块钱|元钱|每斤|作价|多少钱/u,
+  guarantee: /保证|作保|担保|若是.*便|不.*就/u,
+  curse_penalty: /刑罚|惩罚|有祸|吞下|报应/u,
+  warning_pride: /自高|骄傲|气盛|狂妄/u,
+  death_threat: /弄死|杀死|夺取.{0,5}命|要命/u,
+};
+
+function normalizeStoryFactText(value: string) {
+  return value
+    .replace(/衣裳/gu, "衣服")
+    .replace(/患病|病中|病了/gu, "生病")
+    .replace(/药物|药品/gu, "药")
+    .replace(/邻舍|邻里/gu, "邻居")
+    .replace(/照顾|照应|扶持|顾念|帮助/gu, "帮助")
+    .replace(/称谢|道谢|谢意/gu, "感谢")
+    .replace(/果篮|果子/gu, "水果")
+    .replace(/车子/gu, "车")
+    .replace(/[“”"‘’'，。！？；：、（）()\s]/gu, "");
+}
+
+function storyContentTokens(value: string) {
+  const normalized = normalizeStoryFactText(value);
+  const segmenter = new Intl.Segmenter("zh-CN", { granularity: "word" });
+  const tokens = new Set<string>();
+  for (const part of segmenter.segment(normalized)) {
+    const token = part.segment.trim();
+    if (!token || !/[\p{Script=Han}A-Za-z0-9]/u.test(token)) continue;
+    if (STORY_TOKEN_STOP_WORDS.has(token)) continue;
+    if ([...token].length === 1 && !IMPORTANT_SINGLE_STORY_TOKENS.has(token)) continue;
+    tokens.add(token);
+  }
+  return [...tokens];
+}
+
+function escapePattern(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractStoryNames(source: string) {
+  const names = new Set<string>();
+  const matcher = /(?:^|[。！？；，、“”])([\p{Script=Han}A-Za-z·]{2,5}?)(?=(?:说|回答|问|喊|叫|来到|赶来|带着|拿着|看|发现|下班|回家|只收|便|就))/gu;
+  for (const match of source.matchAll(matcher)) {
+    const name = match[1].replace(/(?:摇头|点头|看完后|下班|转身|起身)$/u, "");
+    if (!/^(?:第二天|那时候|这个人|那个人|服务员|众人)$/u.test(name)) names.add(name);
+  }
+  return [...names];
+}
+
+function extractGiftRoles(source: string) {
+  const receiverMatch = source.match(
+    /(?:^|[。！？；，、“”])([\p{Script=Han}A-Za-z·]{2,6}?)(?:只|便|就)?收下/u,
+  );
+  const giverMatch = source.match(
+    /(?:^|[。！？；，、“”])([\p{Script=Han}A-Za-z·]{2,6})(?:带着|拿着|捧着|提着)([^，。；]{1,20}?)(?:来|前来)(?:道谢|送|交给|递给)/u,
+  );
+  return {
+    giver: giverMatch?.[1] || "",
+    receiver: receiverMatch?.[1] || "",
+    gift: cleanSlot(giverMatch?.[2] || "", 40),
+  };
+}
+
+function isGroundedStoryDeclaration(unit: Extract<ScriptureSkeletonUnit, { kind: "declaration" }>, source: string) {
+  const renderedElements = Object.values(unit.elements).join("，");
+  const normalizedSource = normalizeStoryFactText(source);
+  const unsupported = UNSUPPORTED_STORY_MORALS.some(
+    (term) => renderedElements.includes(term) && !source.includes(term),
+  );
+  if (unsupported) return false;
+  const tokens = storyContentTokens(renderedElements);
+  if (!tokens.length) return false;
+  const matched = tokens.filter((token) => normalizedSource.includes(normalizeStoryFactText(token)));
+  return matched.length / tokens.length >= 0.45;
+}
+
+/**
+ * The model only identifies facts. This pass removes unsupported specialist
+ * frames and repairs an unambiguous gift direction before any biblical wording
+ * is rendered.
+ */
+export function groundScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source: string) {
+  if (classifyScriptureSource(source) !== "story") return plan;
+  const giftRoles = extractGiftRoles(source);
+  const units: ScriptureSkeletonUnit[] = [];
+
+  for (const unit of plan.units) {
+    if (unit.kind === "declaration") {
+      if (unit.intent === "general_rule" && !isGroundedStoryDeclaration(unit, source)) continue;
+      units.push(unit);
+      continue;
+    }
+    if (unit.kind !== "speech") {
+      units.push(unit);
+      continue;
+    }
+
+    const evidence = SPECIALIZED_INTENT_EVIDENCE[unit.intent];
+    if (evidence && !evidence.test(source)) continue;
+
+    if (
+      unit.intent === "courtesy_gift" &&
+      giftRoles.giver &&
+      giftRoles.receiver &&
+      unit.speaker === giftRoles.receiver
+    ) {
+      units.push({
+        ...unit,
+        speaker: giftRoles.giver,
+        addressee: giftRoles.receiver,
+        elements: {
+          ...unit.elements,
+          gift: giftRoles.gift || unit.elements.gift || "所带来的礼物",
+        },
+      });
+      continue;
+    }
+    if (unit.intent === "refusal" && (!unit.elements.condition || (!unit.elements.advice && !unit.elements.action2))) {
+      const condition = source.match(/你若([^，；”"]+)[，；][^”"]*(?:回去|报平安|告诉|通知|照顾)/u)?.[1];
+      const advice = source.match(/你若[^，；”"]+[，；][^”"]*?(?:就|便|当)([^。；”"]+)/u)?.[1];
+      units.push(
+        condition || advice
+          ? {
+              ...unit,
+              elements: {
+                ...unit.elements,
+                condition: unit.elements.condition || condition || "",
+                advice: unit.elements.advice || unit.elements.action2 || advice || "",
+              },
+            }
+          : unit,
+      );
+      continue;
+    }
+    units.push(unit);
+  }
+
+  const contrast = source.match(
+    /(?:^|[。！？；，、“”])([\p{Script=Han}A-Za-z·]{2,5}?)虽然([^，。]{1,18})，却([^，。]{1,24})，([^。！？]{1,60})/u,
+  );
+  if (contrast) {
+    const [, actor, condition, response, followingAction] = contrast;
+    const actionKey = storyContentTokens(followingAction)[0] || followingAction.slice(0, 4);
+    const index = units.findIndex(
+      (unit) =>
+        unit.kind === "narration" &&
+        unit.actor === actor &&
+        (!actionKey || cleanSlot(unit.action, 180).includes(actionKey)),
+    );
+    if (index >= 0) {
+      const unit = units[index];
+      if (unit.kind === "narration" && !cleanSlot(unit.action, 180).startsWith("虽然")) {
+        units[index] = {
+          ...unit,
+          action: `虽然${condition}，却${response}，${cleanSlot(unit.action, 180)}`,
+          result: /没有争辩|不曾争辩/u.test(cleanSlot(unit.result, 180)) ? "" : unit.result,
+        };
+      }
+    }
+  }
+
+  const hasGeneralAnchor = units.some(
+    (unit) =>
+      (unit.kind === "declaration" || unit.kind === "speech") &&
+      unit.intent === "general_rule",
+  );
+  if (
+    !hasGeneralAnchor &&
+    /帮助|照顾|照应|扶起|扶持|顾念|邻居|邻里/u.test(source) &&
+    !/欺骗|伤害|仇恨|争吵|纷争|报复/u.test(source)
+  ) {
+    units.push({
+      kind: "declaration",
+      intent: "general_rule",
+      elements: { category: "帮助邻居", result: "彼此照应" },
+    });
+  }
+
+  for (let index = 1; index < units.length; index += 1) {
+    const current = units[index];
+    const previous = units[index - 1];
+    if (
+      current.kind === "narration" &&
+      current.frame === "reaction" &&
+      /^(?:摇头|点头|叹气|皱眉)$/u.test(cleanSlot(current.action, 30)) &&
+      previous?.kind === "speech" &&
+      previous.speaker === current.actor &&
+      new RegExp(`${escapePattern(current.actor || "")}[^。]{0,8}${escapePattern(current.action || "")}说`, "u").test(source)
+    ) {
+      units[index - 1] = current;
+      units[index] = previous;
+    }
+  }
+
+  for (let index = 0; index < units.length - 1; index += 1) {
+    const current = units[index];
+    const next = units[index + 1];
+    if (
+      current.kind === "narration" &&
+      current.frame === "transition" &&
+      cleanSlot(current.time, 80) &&
+      ![
+        current.actor,
+        current.target,
+        current.action,
+        current.object,
+        current.place,
+        current.matter,
+        current.result,
+      ].some((value) => cleanSlot(value, 180)) &&
+      next.kind === "narration" &&
+      !cleanSlot(next.time, 80)
+    ) {
+      units[index + 1] = { ...next, time: cleanSlot(current.time, 80) };
+      units.splice(index, 1);
+      index -= 1;
+    }
+  }
+
+  return { ...plan, units };
+}
+
+export type ScriptureStoryAssessment = {
+  acceptable: boolean;
+  score: number;
+  issues: string[];
+};
+
+export function assessScriptureStoryResult(source: string, result: string): ScriptureStoryAssessment {
+  if (classifyScriptureSource(source) !== "story") {
+    return { acceptable: true, score: 1, issues: [] };
+  }
+
+  const issues: string[] = [];
+  const normalizedResult = normalizeStoryFactText(result);
+  const sourceTokens = storyContentTokens(source);
+  const missingTokens = sourceTokens.filter(
+    (token) => !normalizedResult.includes(normalizeStoryFactText(token)),
+  );
+  const coverage = sourceTokens.length
+    ? (sourceTokens.length - missingTokens.length) / sourceTokens.length
+    : 1;
+  if (coverage < 0.58) {
+    issues.push(`关键事实词覆盖不足，缺少：${missingTokens.slice(0, 10).join("、")}`);
+  }
+
+  for (const family of STORY_FACT_FAMILIES) {
+    if (family.source.test(source) && !family.result.test(result)) {
+      issues.push(`遗漏关键事实：${family.label}`);
+    }
+  }
+
+  for (const name of extractStoryNames(source)) {
+    if (!result.includes(name)) issues.push(`遗漏人物：${name}`);
+  }
+
+  for (const quotation of source.matchAll(/[“"]([^”"]{6,})[”"]/gu)) {
+    const quoteTokens = storyContentTokens(quotation[1]);
+    if (!quoteTokens.length) continue;
+    const quoteCoverage = quoteTokens.filter((token) =>
+      normalizedResult.includes(normalizeStoryFactText(token)),
+    ).length / quoteTokens.length;
+    if (quoteCoverage < 0.35) issues.push(`关键对白含义保留不足：${quotation[1].slice(0, 24)}`);
+  }
+
+  for (const term of UNSUPPORTED_STORY_MORALS) {
+    if (result.includes(term) && !source.includes(term)) issues.push(`凭空加入评价或冲突：${term}`);
+  }
+
+  const giftRoles = extractGiftRoles(source);
+  if (giftRoles.receiver) {
+    const receiverGiving = new RegExp(
+      `(?:(?<!对)${escapePattern(giftRoles.receiver)}(?:说|回答说)|${escapePattern(giftRoles.receiver)}对[^。]{0,12}说)[^。]{0,45}(?:给你|交给你|赠给你)`,
+      "u",
+    );
+    if (receiverGiving.test(result)) issues.push(`礼物方向反转：${giftRoles.receiver}原是收礼者`);
+  }
+
+  if (/家门口中|邻里之间中|仍可本该|不可不要|不是不是/u.test(result)) {
+    issues.push("存在明显病句或重复否定");
+  }
+
+  const uniqueIssues = [...new Set(issues)];
+  const score = Math.max(0, coverage - uniqueIssues.length * 0.08);
+  return {
+    acceptable: coverage >= 0.58 && uniqueIssues.length === 0,
+    score,
+    issues: uniqueIssues,
+  };
+}
+
 function isStandaloneAphorismPlan(plan: ScriptureSkeletonPlan, source = "") {
   const textType = cleanSlot(plan.textType, 60);
   const sourceGenre = source ? classifyScriptureSource(source) : null;
@@ -987,6 +1474,7 @@ function renderPlanClosure(plan: ScriptureSkeletonPlan, source = "") {
 }
 
 export function renderScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source = "") {
+  plan = groundScriptureSkeletonPlan(plan, source);
   plan = dedupeHistoricalSpeech(condenseHistoricalOpening(repairHistoricalPlan(plan)));
   const renderedUnits: string[] = [];
   const speakerSeen = new Map<string, number>();
@@ -1077,15 +1565,18 @@ export function renderScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source 
   return paragraphs.join("\n\n").trim();
 }
 
-export function buildSkeletonIdentificationPrompt(source: string) {
+export function buildSkeletonIdentificationPrompt(source: string, previousIssues: string[] = []) {
   const sourceLength = [...source.trim()].length;
   const detectedGenre = classifyScriptureSource(source);
   const storyTemplatePrompt =
     detectedGenre === "story" ? buildCuvStoryTemplatePrompt(source) : "";
   const shortStoryRule =
     sourceLength >= 100 && sourceLength <= 200
-      ? `\n19. 本次输入为 ${sourceLength} 字。若它是有人物与事件推进的短故事，必须安排至少两处“名句载体”：优先为一至两个 declaration:general_rule，再配合一个最关键的 speech；没有对白时使用两个 declaration。每个 declaration 都必须从原文已有的时辰、劳苦与果效、选择与后果、言语与反应、帮助、诚实、忍耐、骄傲、道路、撒种收取或树与果子关系中提取 category 与 result，好让服务器套入高保留的著名和合本句式。可补入一至两个不改变因果的微小动作或场面过渡，使故事完整，但不得增加新人物、新动机、新冲突或新结局。开场从简，名句与铺陈集中在转折和结果。`
+      ? `\n20. 本次输入为 ${sourceLength} 字。若它是有人物与事件推进的短故事，先完整保留人物、物品、时间、目的、赠与或借贷方向、动作结果和结局，再安排一处最合适的“名句载体”；只有原文确实存在第二个独立而清楚的因果时，才可安排第二处。不得为了凑名句删去疾病、药物、钱财、地点、去向、感谢、伤害对象等事实，也不得把赠送者与收受者调换。declaration:general_rule 中的每个实义词和结果都必须能在原文找到依据；若只能靠“过错、纷争、报应、审判、刑罚”等原文没有的概念才能套入，就不要建立 declaration。每个源句至少要有一个 unit 承载其中未重复的关键事实。可补入一个不改变因果的场面过渡，但不得增加新动机、新冲突或新结局。开场从简，名句集中在转折或结果。`
       : "";
+  const retryRule = previousIssues.length
+    ? `\n上一次结构方案未通过服务器事实审查，必须逐项修正：\n- ${previousIssues.slice(0, 10).join("\n- ")}\n不要解释，只重新输出完整 JSON。\n`
+    : "";
   return `把输入整理成与原文文本类型相符的结构骨架，不写正文，也不要选择圣经句子。服务器会按照文本功能决定固定骨架，再机械填入元素。
 
 本次输入已由服务器预判为“${detectedGenre}”。定义、知识、事实、通知和操作说明必须保留原有文本功能，不得改造成故事、格言、祝福、咒诅或行为报应。只有真正的人物故事才围绕情节主干重组；故事中的寒暄、礼让、重复称呼和相近对白可以合并、压缩、调序或改成叙述。
@@ -1107,7 +1598,7 @@ ${storyTemplatePrompt}
 可用对白功能及应填元素：
 - welcome, waited_arrival, guide_inside(place), invite_seat, introduction(count,names,relation)
 - courtesy_gift(gift), courtesy_refusal(relation), self_identification(name)
-- reputation(qualities), offer_help(matter), reassurance(basis), approval(quality)
+- reputation(qualities), offer_help(recipientAction,action), reassurance(basis), approval(quality)
 - infer_motive(surface,matter), request_directness(matter)
 - conditional_commitment(action,allowance), mediation_request(beneficiary,action,result)
 - mutual_claim(theirs,mine), self_defense(matter,rejected,asserted), status_observation(supporters)
@@ -1116,7 +1607,7 @@ ${storyTemplatePrompt}
 - relay_request(target,matter), warning_pride(warning), youth_defiance(person,quality)
 - exit_threat(condition,consequence), method_challenge(action)
 - coercion(positiveCondition,negativeCondition,result), boast(action), death_threat(target)
-- request(action,result), refusal(matter,action), command(action,prohibition), promise(action)
+- request(matter,action,deadline,result), refusal(matter,action,condition,advice), command(action,prohibition), promise(action)
 - question(question,more), contrast(rejected,asserted), general_rule(category,result)
 - definition(subject,name,details), factual_statement(subject,fact,more), enumeration(subject,items)
 - guarantee(condition,penalty), trade_price(item,unit,price), curse_penalty(condition,subject,penalty)
@@ -1126,7 +1617,7 @@ ${storyTemplatePrompt}
 1. 必须保留人物、阵营、核心交易或借贷方向、决定冲突的条件、动作执行者、承受者、伤害对象和结局。次要数字、寒暄次序、礼让轮次和场面小动作不必逐项复刻；可按“到场—坐席—提出请求—双方争辩—冲突升级—结局”重新编排。
 2. 不准输出 frame 形式的对白骨架编号，不准写圣经体正文，不准把“若、必、不可、乃是”等风格词填进 elements。
 3. 不要给原文每一句对白都建立 speech。全篇通常整理为 12—36 个 unit；连续寒暄最多保留一个 welcome 或 guide_inside，落座最多一个 invite_seat，重复客气最多保留 courtesy_gift 与 courtesy_refusal 各一个。只有改变局势的请求、拒绝、辩护、警告、威胁、强迫和关键反问必须保留为 speech；其余内容合并成 narration 或删去重复。
-4. elements 只填骨架尚未包含的名词或谓语核心，绝不填整句或半句原台词，也不重复骨架虚词。例如 offer_help.matter 只填“什么事”，不可填“以后若有什么事情，你只管开口”；exit_threat.condition 只填“这样离开房间”，不可填“你今日若这样走出房子”；boast.action 只填“这样对我说话”，不可填“我长到这么大还没有人敢这样说话”。
+4. elements 只填骨架尚未包含的名词或谓语核心，绝不填整句或半句原台词，也不重复骨架虚词。例如 offer_help.recipientAction 只填“回去照顾病人”，offer_help.action 只填“把东西送到楼上”；exit_threat.condition 只填“这样离开房间”，不可填“你今日若这样走出房子”；boast.action 只填“这样对我说话”，不可填“我长到这么大还没有人敢这样说话”。
 5. introduction.count 只填“一、两、三”等数词，不填“个、人、个人”；names 只填姓名；relation 只填“我的兄弟、同伴、同事”等关系。死亡威胁的 target 只填被威胁者，不填“你的命”或“弄死”。
 6. narration.action 填不含主语、但包含对象和去向的完整动作短语，例如“从手中取出文件，摆在负责人面前”；不得只填“叫了一声”，必须填“叫目标人物的名字”。
 7. 同一动作只建立一个 unit；result 只填动作之外的新后果，不得把“甲刺伤乙”再配上“乙受伤”，也不得把“甲制住乙”再配上“乙被制住”。
@@ -1141,7 +1632,11 @@ ${storyTemplatePrompt}
 16. 长篇故事也可以使用格言骨架。遇到明确的因果、报应、骄傲、忍耐、取舍、量人、撒种收取、树与果子、光暗、道路、根基、时候、言语、怒气或朋友关系时，可以把相邻情节合并为 declaration:general_rule，使正文出现一至四处格言式判断；也可以把关键对白的意思靠拢到合适格言。为了节目效果可以增强比喻和复沓，但不得调换人物阵营、动作归属、伤害对象或因果方向。
 17. 定义句和知识说明若出现“是、指、称为、以……为……、由……组成、包括、属于、用于、标准、规范”等结构，textType 必须写“定义”或“知识说明”，并使用 definition(subject,name,details) 或 factual_statement(subject,fact,more)。details 必须保留“以甲为乙”等关系及被定义名称，不得使用 general_rule，也不得添加“有福、有祸、凡、必、刑罚、审判”。
 18. 只输出 JSON，不输出 Markdown。
+19. 帮助类对白必须把双方动作拆清：recipientAction 填受帮助者先去做的事，action 填说话者答应代办的事。例如“你先照顾病人，我替你送东西”应分别填“回去照顾病人”和“把东西送到指定地方”，不得压缩成空泛的“有什么事只管说”。礼物情节必须确认谁带来、谁收下；“甲带礼物来，乙只收一件”中，courtesy_gift 的 speaker 只能是甲，乙的收取应写 narration，不得让乙说“我把礼物给你”。间接说明疾病、送药、欠款、目的和原因时，使用 indirect_speech.matter 完整保留这些关系。
+    带期限的要求使用 request，并把理由填入 matter、期限填入 deadline、所要求的动作填入 action；例如“预算仍然太高，下午以前再改一版”必须三项全部保留，不得只剩“再改一版”。
+    一句话同时包含“我不接受某物”和“你若处在某种情况，就去做另一件事”时，可使用 refusal：matter 填拒收之物，action 填“收下/接受”等被拒绝动作，condition 填“你若”之后的条件，advice 填对方应做的事；服务器会把拒绝与劝告分成两个圣经体分句，不得写成“我断不回去”。
 ${shortStoryRule}
+${retryRule}
 
 <输入>
 ${source}
@@ -1149,6 +1644,28 @@ ${source}
 }
 
 export function renderEmergencyScripture(source: string) {
+  const preserved = source
+    .trim()
+    .replace(/[\r\n]+/gu, "")
+    .replace(/。{2,}/gu, "。")
+    .slice(0, 3000);
+  if (classifyScriptureSource(source) === "story") {
+    let story = preserved
+      .replace(/^傍晚，/u, "那时正是傍晚，")
+      .replace(/^清晨，/u, "那时正是清晨，")
+      .replace(/^一天，/u, "那时，")
+      .replace(/第二天，/gu, "到了第二天，")
+      .replace(/回家时/gu, "及至回家的时候")
+      .replace(/下班回家/gu, "作完当日的工，回家去");
+    if (!/[。！？]$/u.test(story)) story += "。";
+    if (
+      /帮助|照顾|照应|扶起|扶持|顾念|邻居|邻里/u.test(source) &&
+      !/各人不要单顾自己的事/u.test(story)
+    ) {
+      story += "各人不要单顾自己的事，也要顾别人的事。";
+    }
+    return story;
+  }
   const cleaned = cleanSlot(source, 3000);
   return `论到这事，所记的乃是这样：${cleaned}。凡听见这话的，都当察看其中的缘故。`;
 }
