@@ -13,6 +13,7 @@ export type ScriptureMode =
   | "jonah";
 
 export type ScriptureLevel = "light" | "standard" | "grand";
+export type ScriptureEdition = "cuv" | "sigao" | "kjv";
 export type ScriptureDirection = "to_scripture" | "to_plain";
 export type PlainMode = "direct" | "explain" | "subtext" | "roast";
 
@@ -150,6 +151,43 @@ export const SCRIPTURE_REPLACEMENT_SYSTEM_PROMPT = `你执行《圣经》和合�
 export const PLAIN_SYSTEM_PROMPT = `你把和合本式旧译腔翻回自然现代中文。
 
 保留原文的文本形态、人物、视角、对象、专名、数字、单位、条件、否定、动作、顺序、语气和结论。只还原文本明确表达的关系，不把修辞当成事实，不新增建议或评价。不以“这段话的意思是”等报告式套话开头。只输出自然白话正文。`;
+
+export const SIGAO_SYSTEM_PROMPT = `你把现代中文改写成辨识度鲜明的思高译本式中文文学仿作。只模仿公开可辨的译文节奏与句法，不声称输出是真实经文，也不逐字复制长段现成经文。
+
+必须做到：
+- 使用思高译腔常见的较欧化语序、庄重连接、关系从句与天主教中文传统词感，例如“那时”“以后”“于是”“关于”“凡……的”“因为……所以”“为使”“免得”“原来”“的确”；但不可只把和合本的“乃、晓谕”换词。
+- 故事要像一篇连贯记载：开场简洁，冲突与决定性对白展开，结局清楚；可合并寒暄，却不可改变人物、请求方向、否定、关键动作、伤害对象和结局。
+- 短句、祝愿与格言要像可单独引用的一节译文，优先平行、对照、因果或劝勉，不得把所有内容写成同一个“有福的”句式。
+- 人名、品牌、API、版本号、数字和现代专名原样保留。普通对白必须重新造句，不得原样照抄。
+- 不加入原文没有的神迹、教义、报应、死亡或成功结果。
+- 只输出正文，不输出标题、出处、说明、分析或 Markdown。`;
+
+export const KJV_SYSTEM_PROMPT = `Rewrite the user's text as a literary imitation of the King James Bible. This is style imitation, not a claim that the output is scripture or an actual Bible translation.
+
+Requirements:
+- Make every sentence recognizably KJV-like through cadence, parallelism, inversion, and connectors such as “And it came to pass”, “behold”, “verily”, “for”, “therefore”, “lest”, “wherefore”, and “it shall come to pass”. Do not merely sprinkle archaic pronouns upon modern prose.
+- Use thou/thee/thy/thine for one person and ye/you/your for more than one; conjugate consistently with art, hast, dost, wilt, shalt, and third-person -eth where natural.
+- Rebuild dialogue rather than quoting the Chinese wording literally. Preserve the speaker, addressee, request or threat, negation, action direction, injury target, and ending.
+- For maxims and blessings, produce a compact, quotable verse with balanced clauses. Do not force every input into “Blessed is he”.
+- Render Chinese personal names in pinyin without tones when practical; preserve brands, API names, version numbers, code, and other modern proper terms exactly.
+- Add no miracle, doctrine, punishment, death, or successful outcome unsupported by the source.
+- Output only the rewritten text, with no title, citation, notes, analysis, or Markdown.`;
+
+export function buildEditionPrompt(
+  text: string,
+  edition: Exclude<ScriptureEdition, "cuv">,
+  lengthInstruction: string,
+  variation = 0,
+  retryIssues: string[] = [],
+) {
+  const editionRule = edition === "kjv"
+    ? "Write the complete result in English. Preserve all causal relationships and the ending."
+    : "全文使用中文。思高译腔必须贯穿每一句，不得退化成普通文言文或和合本替词稿。";
+  const retryRule = retryIssues.length
+    ? `\nThe previous draft had these specific problems. Correct them without changing sound facts:\n- ${retryIssues.slice(0, 5).join("\n- ")}`
+    : "";
+  return `${editionRule}\n${lengthInstruction}\nVariation request: ${variation}. Choose a different compatible cadence when variation is greater than zero.${retryRule}\n\n<source>\n${text}\n</source>`;
+}
 
 export function buildScripturePrompt(
   text: string,

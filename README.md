@@ -124,19 +124,25 @@ npm run desktop:dist
 生成文件位于：
 
 ```text
-.artifacts/desktop-dist/圣经体翻译器 1.0.0.exe
+.artifacts/desktop-dist/圣经体翻译器 1.1.0.exe
 ```
 
-桌面版同样采用 BYOK。用户首次打开后点击“配置 API”，填写自己的 DeepSeek API Key；Key 只保存在本机应用的数据目录中，不会被打包进安装文件或上传到项目仓库。
+桌面版同样采用 BYOK。用户首次打开后点击“配置 API”，填写与当前 OpenAI 兼容接口匹配的 API Key；需要时可以另填模型名。Key 只保存在本机应用的数据目录中，不会被打包进安装文件或上传到项目仓库。
 
 当前发布包没有购买 Windows 代码签名证书，因此首次运行时 Windows SmartScreen 可能显示“未知发布者”。用户应从项目官方 Release 下载，并可用随发布包提供的 SHA-256 文件校验完整性。
 
 ## 可选环境变量
 
 ```env
+AI_BASE_URL=https://api.deepseek.com
+AI_MODEL=deepseek-v4-flash
+AI_MODEL_CANDIDATES=deepseek-v4-flash,deepseek-v4-pro
+
+# 旧版变量仍兼容
 DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-chat
-DEEPSEEK_REVIEW_MODEL=deepseek-chat
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_REVIEW_MODEL=deepseek-v4-flash
+DEEPSEEK_MODEL_CANDIDATES=deepseek-v4-flash,deepseek-v4-pro
 MAX_OUTPUT_TOKENS=4096
 TRANSLATE_TIME_BUDGET_MS=45000
 DEEPSEEK_CALL_TIMEOUT_MS=22000
@@ -150,7 +156,9 @@ DEEPSEEK_CALL_TIMEOUT_MS=22000
 4. 模型只识别事实元素、叙事顺序和对白功能，返回严格 JSON，不生成正文，也不选择经文句子。
 5. 服务器按对白功能选择固定名句骨架，把人物、动作、对象、条件和结果机械填槽。
 6. 服务器用固定叙事框架连接各单元，并执行确定性的场景词替换后立即返回。
-7. JSON 无效时最多重试识别一次；仍失败或超时则在 45 秒总预算内返回本地紧急版本，不再反复润色或重写。
+7. JSON 无效或关键事实未通过时最多重试识别一次；长故事会保留事实安全的最佳版本，只有借贷方向、伤害对象、否定关系和结局等硬错误仍未修正时才进入紧急版本。
+
+模型请求层兼容主流 OpenAI 格式接口：模型名不支持时优先读取接口返回的可用模型，JSON mode、system role、`max_tokens`、`temperature` 与推理开关不兼容时会自动调整并缓存成功能力。DeepSeek 与 Qwen 兼容接口会优先关闭不必要的长推理，以减少长故事超时。认证、模型配置和参数兼容错误会直接反馈给用户，不会被包装成固定兜底结果。原生 Anthropic 等非 OpenAI 请求格式需要先经过兼容网关。
 
 正向与反向输入上限均为 3000 字。
 

@@ -25,10 +25,12 @@ import {
 import type {
   PlainMode,
   ScriptureDirection,
+  ScriptureEdition,
   ScriptureLevel,
 } from "@/lib/prompt";
 
 const API_KEY_STORAGE_KEY = "bible-style-deepseek-api-key";
+const API_MODEL_STORAGE_KEY = "bible-style-api-model";
 const CLIENT_ID_STORAGE_KEY = "bible-style-client-id";
 
 const directions: Array<{
@@ -39,13 +41,23 @@ const directions: Array<{
   {
     id: "to_scripture",
     title: "白话成章",
-    description: "把现代中文改写成和合本译腔",
+    description: "改写为和合本、思高译腔或 KJV 英文",
   },
   {
     id: "to_plain",
     title: "古意还白",
     description: "把圣经译腔翻回自然人话",
   },
+];
+
+const editions: Array<{
+  id: ScriptureEdition;
+  title: string;
+  description: string;
+}> = [
+  { id: "cuv", title: "和合本译腔", description: "旧译白话，复沓庄严" },
+  { id: "sigao", title: "思高译腔", description: "欧化句法，天主教传统词感" },
+  { id: "kjv", title: "KJV English", description: "King James cadence in English" },
 ];
 
 const plainModes: Array<{
@@ -65,9 +77,9 @@ const levels: Array<{
   plainTitle: string;
   description: string;
 }> = [
-  { id: "light", title: "简章", plainTitle: "略释", description: "短促凝练" },
-  { id: "standard", title: "成篇", plainTitle: "明释", description: "结构完整" },
-  { id: "grand", title: "长卷", plainTitle: "详释", description: "分层展开" },
+  { id: "light", title: "简章", plainTitle: "略释", description: "提取主干，压缩成章" },
+  { id: "standard", title: "成篇", plainTitle: "明释", description: "保留层次，篇幅相近" },
+  { id: "grand", title: "长卷", plainTitle: "详释", description: "扩展场景、复沓与评语" },
 ];
 
 const examples = [
@@ -138,17 +150,22 @@ export default function Home() {
   const [direction, setDirection] =
     useState<ScriptureDirection>("to_scripture");
   const [plainMode, setPlainMode] = useState<PlainMode>("direct");
+  const [edition, setEdition] = useState<ScriptureEdition>("cuv");
   const [level, setLevel] = useState<ScriptureLevel>("standard");
   const [text, setText] = useState("");
   const [result, setResult] = useState("");
   const [verses, setVerses] = useState<ScriptureVerse[]>([]);
   const [error, setError] = useState("");
+  const [warning, setWarning] = useState("");
+  const [variation, setVariation] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingIndex, setLoadingIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const [skillCopied, setSkillCopied] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [draftApiKey, setDraftApiKey] = useState("");
+  const [apiModel, setApiModel] = useState("");
+  const [draftApiModel, setDraftApiModel] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
   const outputRef = useRef<HTMLDivElement>(null);
@@ -158,10 +175,15 @@ export default function Home() {
   const selectedPlainMode =
     plainModes.find((item) => item.id === plainMode) ?? plainModes[0];
   const selectedLevel = levels.find((item) => item.id === level) ?? levels[1];
+  const selectedEdition = editions.find((item) => item.id === edition) ?? editions[0];
   const currentExamples = isPlainDirection ? plainExamples : examples;
 
   const inputLabel = isPlainDirection ? "文体文本" : "现代白话";
-  const outputLabel = isPlainDirection ? "现代释义" : "原文成章";
+  const outputLabel = isPlainDirection
+    ? "现代释义"
+    : edition === "kjv"
+      ? "KJV-style English"
+      : "原文成章";
 
   const canSubmit = text.trim().length > 0 && !isLoading;
 
@@ -169,8 +191,8 @@ export default function Home() {
     () =>
       isPlainDirection
         ? `${selectedPlainMode.title} · ${selectedLevel.plainTitle}`
-        : `原文成章 · ${selectedLevel.title}`,
-    [isPlainDirection, selectedLevel, selectedPlainMode],
+        : `${selectedEdition.title} · ${selectedLevel.title}`,
+    [isPlainDirection, selectedEdition, selectedLevel, selectedPlainMode],
   );
   const shareResult = useMemo(
     () =>
@@ -182,8 +204,11 @@ export default function Home() {
 
   useEffect(() => {
     const stored = window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() || "";
+    const storedModel = window.localStorage.getItem(API_MODEL_STORAGE_KEY)?.trim() || "";
     setApiKey(stored);
     setDraftApiKey(stored);
+    setApiModel(storedModel);
+    setDraftApiModel(storedModel);
   }, []);
 
   useEffect(() => {
@@ -201,10 +226,23 @@ export default function Home() {
     setResult("");
     setVerses([]);
     setError("");
+    setWarning("");
+    setVariation(0);
+  }
+
+  function switchEdition(nextEdition: ScriptureEdition) {
+    if (nextEdition === edition) return;
+    setEdition(nextEdition);
+    setResult("");
+    setVerses([]);
+    setError("");
+    setWarning("");
+    setVariation(0);
   }
 
   function openKeyModal() {
     setDraftApiKey(apiKey);
+    setDraftApiModel(apiModel);
     setShowApiKey(false);
     setIsKeyModalOpen(true);
   }
@@ -212,24 +250,35 @@ export default function Home() {
   function saveApiKey() {
     const next = draftApiKey.trim();
     if (!next) {
-      setError("请输入 DeepSeek API Key。");
+      setError("请输入模型 API Key。");
+      return;
+    }
+    const nextModel = draftApiModel.trim();
+    if (nextModel && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/u.test(nextModel)) {
+      setError("模型名称格式无效。");
       return;
     }
     window.localStorage.setItem(API_KEY_STORAGE_KEY, next);
+    if (nextModel) window.localStorage.setItem(API_MODEL_STORAGE_KEY, nextModel);
+    else window.localStorage.removeItem(API_MODEL_STORAGE_KEY);
     setApiKey(next);
+    setApiModel(nextModel);
     setError("");
     setIsKeyModalOpen(false);
   }
 
   function clearApiKey() {
     window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+    window.localStorage.removeItem(API_MODEL_STORAGE_KEY);
     setApiKey("");
     setDraftApiKey("");
+    setApiModel("");
+    setDraftApiModel("");
     setIsKeyModalOpen(false);
     setError("本机保存的 API Key 已清除。");
   }
 
-  async function submit() {
+  async function submit(regenerate = false) {
     const trimmed = text.trim();
     if (!trimmed || isLoading) return;
     if (!apiKey) {
@@ -245,7 +294,10 @@ export default function Home() {
     setIsLoading(true);
     setLoadingIndex(0);
     setError("");
+    setWarning("");
     setCopied(false);
+    const nextVariation = regenerate ? variation + 1 : variation;
+    if (regenerate) setVariation(nextVariation);
 
     try {
       const response = await fetch("/api/translate", {
@@ -255,11 +307,22 @@ export default function Home() {
           Authorization: `Bearer ${apiKey}`,
           "X-Client-Id": getClientId(),
         },
-        body: JSON.stringify({ text: trimmed, direction, mode: "original", plainMode, level }),
+        body: JSON.stringify({
+          text: trimmed,
+          direction,
+          mode: "original",
+          plainMode,
+          level,
+          edition,
+          model: apiModel || undefined,
+          variation: nextVariation,
+        }),
       });
       const payload = (await response.json()) as {
         result?: string;
         verses?: ScriptureVerse[];
+        warning?: string;
+        generationMode?: string;
         error?: string;
       };
       if (!response.ok || !payload.result) {
@@ -267,6 +330,7 @@ export default function Home() {
       }
       setResult(payload.result);
       setVerses(isPlainDirection ? [] : payload.verses || []);
+      setWarning(payload.warning || "");
       window.setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
     } catch (requestError) {
       setError(
@@ -456,9 +520,31 @@ export default function Home() {
           </div>
         )}
 
+        {!isPlainDirection && (
+          <div className="control-block edition-block">
+            <div className="control-title">
+              <span>一、选择译腔</span>
+              <small>{selectedEdition.description}</small>
+            </div>
+            <div className="edition-switch" role="tablist" aria-label="选择译腔">
+              {editions.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={edition === item.id ? "active" : ""}
+                  onClick={() => switchEdition(item.id)}
+                >
+                  <strong>{item.title}</strong>
+                  <span>{item.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="control-block compact">
           <div className="control-title">
-            <span>{isPlainDirection ? "二" : "一"}、选择篇幅</span>
+            <span>二、选择篇幅</span>
             <small>{selectedLevel.description}</small>
           </div>
           <div className="level-switch">
@@ -485,7 +571,11 @@ export default function Home() {
             <textarea
               value={text}
               maxLength={inputLimit}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => {
+                setText(event.target.value);
+                setVariation(0);
+                setWarning("");
+              }}
               placeholder={
                 isPlainDirection
                   ? "粘贴一段带有和合本译腔的文字……"
@@ -501,15 +591,18 @@ export default function Home() {
                 </button>
               ))}
             </div>
-            <button className="submit-button" type="button" disabled={!canSubmit} onClick={submit}>
+            <button className="submit-button" type="button" disabled={!canSubmit} onClick={() => submit(false)}>
               {isLoading ? <RefreshCw className="spin" size={18} /> : <Sparkles size={18} />}
               {isLoading
                 ? loadingLines[loadingIndex]
                 : isPlainDirection
                   ? "翻回人话"
-                  : "把这段文案写成圣经体"}
+                  : edition === "kjv"
+                    ? "Rewrite in KJV style"
+                    : "把这段文案写成圣经体"}
             </button>
             {error && <p className="error-message" role="alert">{error}</p>}
+            {warning && <p className="warning-message" role="status">{warning}</p>}
           </section>
 
           <section className="writing-panel output-panel" ref={outputRef}>
@@ -537,8 +630,8 @@ export default function Home() {
                   <button type="button" onClick={downloadCard}>
                     <Download size={16} /> 导出图片
                   </button>
-                  <button type="button" onClick={submit} disabled={isLoading}>
-                    <RefreshCw size={16} /> 再写一次
+                  <button type="button" onClick={() => submit(true)} disabled={isLoading}>
+                    <RefreshCw size={16} /> {edition === "kjv" ? "Rewrite again" : "再写一次"}
                   </button>
                 </div>
               </>
@@ -612,9 +705,9 @@ export default function Home() {
               <X size={19} />
             </button>
             <span className="modal-icon"><KeyRound size={22} /></span>
-            <h2 id="key-modal-title">配置 DeepSeek API Key</h2>
+            <h2 id="key-modal-title">配置模型 API</h2>
             <p>
-              本站不提供共享额度。Key 只保存在此浏览器的 localStorage 中，并在转换时临时发送给 DeepSeek。
+              本站不提供共享额度。Key 与模型名只保存在此浏览器中；服务端会自动兼容主流 OpenAI 格式模型的常见参数差异。
             </p>
             <label htmlFor="api-key-input">API Key</label>
             <div className="key-input-wrap">
@@ -630,9 +723,20 @@ export default function Home() {
                 {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
+            <label className="model-label" htmlFor="api-model-input">模型名称（可选）</label>
+            <div className="key-input-wrap">
+              <input
+                id="api-model-input"
+                type="text"
+                value={draftApiModel}
+                onChange={(event) => setDraftApiModel(event.target.value)}
+                placeholder="留空自动选择，例如 deepseek-v4-flash、qwen-plus"
+                autoComplete="off"
+              />
+            </div>
             <div className="privacy-note">
               <ShieldCheck size={18} />
-              <span>服务端不读取公共 Key，也不会把你的 Key 写入数据库或日志。</span>
+              <span>模型名不受支持时会自动尝试接口返回的可用模型；仍不兼容时会明确报错，不会直接展示固定兜底稿。</span>
             </div>
             <div className="modal-actions">
               {apiKey && (

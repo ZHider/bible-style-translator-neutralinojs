@@ -1199,10 +1199,18 @@ function escapePattern(value: string) {
 
 function extractStoryNames(source: string) {
   const names = new Set<string>();
-  const matcher = /(?:^|[。！？；，、“”])([\p{Script=Han}A-Za-z·]{2,5}?)(?=(?:说|回答|问|喊|叫|来到|赶来|带着|拿着|看|发现|下班|回家|只收|便|就))/gu;
+  const matcher = /(?:^|[。！？；，、“”])([\p{Script=Han}A-Za-z·]{2,5}?)(?=(?:说|回答|问|喊|叫|来到|赶来|带着|拿着|看见|看到|察看|查看|发现|下班|回家|只收|便|就))/gu;
   for (const match of source.matchAll(matcher)) {
     const name = match[1].replace(/(?:摇头|点头|看完后|下班|转身|起身)$/u, "");
-    if (!/^(?:第二天|那时候|这个人|那个人|服务员|众人)$/u.test(name)) names.add(name);
+    const isClauseFragment =
+      /^(?:把|被|从|向|在|于|将|使|让|给|对|同|与|和|若|如果|因为|所以|为了|当|及至|到了|有些|有的|这些|那些|这个|那个|其中|于是|随后|后来|就|便|又|却|仍|并|而|但|惟有|只有)/u.test(name) ||
+      /(?:昨日|今日|明日|当天|当时|以前|以后|最后|已经|仍然|虽然|忽然|立即|重新|终于|一同|各自|逐项|这些|那些)/u.test(name);
+    if (
+      !isClauseFragment &&
+      !/^(?:第二天|那时候|这个人|那个人|服务员|众人)$/u.test(name)
+    ) {
+      names.add(name);
+    }
   }
   return [...names];
 }
@@ -1810,9 +1818,118 @@ export function renderScriptureSkeletonPlan(plan: ScriptureSkeletonPlan, source 
   return reflection ? `${body}\n\n${reflection}` : body;
 }
 
-export function buildSkeletonIdentificationPrompt(source: string, previousIssues: string[] = []) {
+type SkeletonPlanningLevel = "light" | "standard" | "grand";
+
+function planningUnitRange(level: SkeletonPlanningLevel, sourceLength: number) {
+  if (level === "light") return sourceLength >= 180 ? "6—12" : "1—6";
+  if (level === "grand") {
+    return sourceLength <= 120 ? "5—10" : sourceLength <= 400 ? "10—18" : "14—26";
+  }
+  return sourceLength <= 120 ? "3—8" : sourceLength <= 400 ? "7—14" : "10—20";
+}
+
+function planningLengthRule(level: SkeletonPlanningLevel, sourceLength: number) {
+  if (level === "light") {
+    return `本次选择短篇。压缩重复寒暄、礼节和说明，只保留事实主干、关键发言、决定性动作与结局。通常整理为 ${planningUnitRange(level, sourceLength)} 个 unit。`;
+  }
+  if (level === "grand") {
+    return `本次选择长篇。不得发明事实，但要把原文已有的场景、动作、发言目的、条件、反应和结果拆得更完整，为渲染器提供扩写材料。通常整理为 ${planningUnitRange(level, sourceLength)} 个 unit。`;
+  }
+  return `本次选择适中篇幅。合并重复信息，保留主要层次、关键对白和完整结局。通常整理为 ${planningUnitRange(level, sourceLength)} 个 unit。`;
+}
+
+function compactNonStoryPlanningPrompt(
+  source: string,
+  genre: ReturnType<typeof classifyScriptureSource>,
+  level: SkeletonPlanningLevel,
+  previousIssues: string[],
+) {
+  const retryRule = previousIssues.length
+    ? `\n上一版存在以下问题，只修正这些问题并重新输出完整 JSON：\n- ${previousIssues.slice(0, 6).join("\n- ")}\n`
+    : "";
+  const genreGuide =
+    genre === "aphorism"
+      ? `这是格言、观点或祝愿。只建立一个 declaration：一般判断使用 general_rule(category,result)，正反判断使用 contrast(rejected,asserted)，祝愿使用 blessing(subject,wish)。不得编人物故事，不得添加原文没有的福祸、惩罚或结果。`
+      : genre === "notice"
+        ? `这是通知。保留时间、对象、地点、条件和未完成状态；可使用 factual_statement、enumeration、request 或 command。不得写成众人已经执行。`
+        : genre === "instruction"
+          ? `这是操作要求或规则。保留步骤、先后、版本、条件与失败关系；可使用 command、enumeration、contrast 或 factual_statement。不得写成已经完成。`
+          : `这是事实或短陈述。保持原文本功能；通常只使用 factual_statement，确有正反关系时才使用 contrast。不得添加行为报应或虚构结果。`;
+
+  const compactLengthRule =
+    level === "light"
+      ? "本次选择短篇，只保留一个核心 unit。"
+      : level === "grand"
+        ? "本次选择长篇，可拆成二至五个平行 unit，但只能展开原文已有关系。"
+        : "本次选择适中篇幅，使用一至三个 unit，保留主要层次。";
+  return `你是和合本风格改写器的结构编辑。把输入整理成与原文文本类型相符的结构骨架，不写正文，不选择经文。只输出一个 JSON 对象，不得输出 Markdown。\n\n服务器预判类型：${genre}\n${genreGuide}\n${compactLengthRule}\n\nJSON 结构：\n{\n  "textType": "格言/祝愿/通知/操作说明/事实陈述",\n  "units": [\n    {"kind":"declaration","intent":"general_rule/contrast/blessing/factual_statement/enumeration/command/request","elements":{}}\n  ],\n  "reflection":{"enabled":false,"mode":"neutral","actor":"","behavior":"","outcome":"","relation":"neutral_record","polarity":"neutral","evidence":[]}\n}\n\n字段要求：\n- general_rule: category,result\n- contrast: rejected,asserted\n- blessing: subject,wish\n- factual_statement: subject,fact,more\n- enumeration: subject,items\n- command: action,prohibition\n- request: matter,action,deadline,result\n- elements 只放原文内容，不得填“若、必、不可、乃是、论到”等骨架词。\n- 数字、时间、否定、条件、现代术语和专名必须保留。\n- 短篇只保留一项核心表达；适中可有一至三项；长篇可拆成二至五项平行表达，但不得增加新事实。\n${retryRule}\n<输入>\n${source}\n</输入>`;
+}
+
+function relevantStoryIntentGuide(source: string) {
+  const guides = new Set<string>([
+    "introduction(count,names,relation)",
+    "question(question,more)",
+    "request(matter,action,deadline,result)",
+    "refusal(matter,action,condition,advice)",
+    "command(action,prohibition)",
+    "promise(action)",
+    "contrast(rejected,asserted)",
+    "agreement(action)",
+    "disagreement(matter)",
+  ]);
+  if (/欢迎|请进|里面请|等候|等了|坐|落座|入座/u.test(source)) {
+    guides.add("welcome / waited_arrival / guide_inside(place) / invite_seat");
+  }
+  if (/礼物|客气|收下|推辞|小意思/u.test(source)) {
+    guides.add("courtesy_gift(gift) / courtesy_refusal(relation)");
+  }
+  if (/名字|名叫|我叫|我是|介绍/u.test(source)) {
+    guides.add("self_identification(name) / introduction(count,names,relation)");
+  }
+  if (/名声|名望|义气|情分|帮忙|有什么事/u.test(source)) {
+    guides.add("reputation(qualities) / offer_help(recipientAction,action) / reassurance(basis)");
+  }
+  if (/为什么来|不只是|直说|挑明|有事/u.test(source)) {
+    guides.add("infer_motive(surface,matter) / request_directness(matter)");
+  }
+  if (/兄弟|朋友|靠.+吃饭|情面|面子|传话/u.test(source)) {
+    guides.add("mediation_request(beneficiary,action,result) / mutual_claim(theirs,mine) / relay_request(target,matter) / face_boundary(theirAction,myAction)");
+  }
+  if (/借钱|不是不还|暂借|辩解|有头有脸|孝敬/u.test(source)) {
+    guides.add("self_defense(matter,rejected,asserted) / status_observation(supporters)");
+  }
+  if (/骂|无礼|什么东西|算什么|摆架子|住口/u.test(source)) {
+    guides.add("insult_challenge(knownA,knownB,challenge) / rebuke(action,prohibition)");
+  }
+  if (/龙|虎|自高|气盛|年轻/u.test(source)) {
+    guides.add("paired_dominance(categoryA,resultA,categoryB,resultB) / warning_pride(warning) / youth_defiance(person,quality)");
+  }
+  if (/走出|离开.*没完|答应也得|不答应也得|怎么走/u.test(source)) {
+    guides.add("exit_threat(condition,consequence) / method_challenge(action) / coercion(positiveCondition,negativeCondition,result)");
+  }
+  if (/没人敢|从来没有人|弄死|杀死|夺取.*命/u.test(source)) {
+    guides.add("boast(action) / death_threat(target)");
+  }
+  if (/保证|作保|若不|退款|吞下|惩罚/u.test(source)) {
+    guides.add("guarantee(condition,penalty) / curse_penalty(condition,subject,penalty)");
+  }
+  if (/多少钱|价格|每斤|每个|元|块钱|付款|交付/u.test(source)) {
+    guides.add("trade_price(item,unit,price)");
+  }
+  if (/祝|愿你|愿他/u.test(source)) guides.add("blessing(subject,wish)");
+  return [...guides].map((item) => `- ${item}`).join("\n");
+}
+
+export function buildSkeletonIdentificationPrompt(
+  source: string,
+  previousIssues: string[] = [],
+  level: SkeletonPlanningLevel = "standard",
+) {
   const sourceLength = [...source.trim()].length;
   const detectedGenre = classifyScriptureSource(source);
+  if (detectedGenre !== "story") {
+    return compactNonStoryPlanningPrompt(source, detectedGenre, level, previousIssues);
+  }
   const storyTemplatePrompt =
     detectedGenre === "story" ? buildCuvStoryTemplatePrompt(source) : "";
   const shortStoryRule =
@@ -1829,6 +1946,8 @@ export function buildSkeletonIdentificationPrompt(source: string, previousIssues
 对于人物故事，这不是逐句翻译或影视台词校对；只锁定人物阵营、核心冲突、关键因果、决定局势的发言、动作归属、伤害对象与结局。
 
 ${storyTemplatePrompt}
+
+${planningLengthRule(level, sourceLength)}
 
 只输出以下 JSON：
 {
@@ -1850,28 +1969,15 @@ ${storyTemplatePrompt}
   }
 }
 
-可用对白功能及应填元素：
-- welcome, waited_arrival, guide_inside(place), invite_seat, introduction(count,names,relation)
-- courtesy_gift(gift), courtesy_refusal(relation), self_identification(name)
-- reputation(qualities), offer_help(recipientAction,action), reassurance(basis), approval(quality)
-- infer_motive(surface,matter), request_directness(matter)
-- conditional_commitment(action,allowance), mediation_request(beneficiary,action,result)
-- mutual_claim(theirs,mine), self_defense(matter,rejected,asserted), status_observation(supporters)
-- insult_challenge(knownA,knownB,challenge), rebuke(action,prohibition)
-- paired_dominance(categoryA,resultA,categoryB,resultB), face_boundary(theirAction,myAction)
-- relay_request(target,matter), warning_pride(warning), youth_defiance(person,quality)
-- exit_threat(condition,consequence), method_challenge(action)
-- coercion(positiveCondition,negativeCondition,result), boast(action), death_threat(target)
-- request(matter,action,deadline,result), refusal(matter,action,condition,advice), command(action,prohibition), promise(action), blessing(subject,wish)
-- question(question,more), contrast(rejected,asserted), general_rule(category,result)
-- definition(subject,name,details), factual_statement(subject,fact,more), enumeration(subject,items)
-- guarantee(condition,penalty), trade_price(item,unit,price), curse_penalty(condition,subject,penalty)
-- agreement(action), disagreement(matter)
+JSON 要紧凑：每个 unit 只输出 kind、frame/intent 与实际用到的非空字段；不要重复输出空字符串字段。reflection 字段必须完整。
+
+本次输入只允许从以下相关对白功能中选择；找不到专用功能时使用 request/refusal/command/promise/question/contrast/agreement/disagreement：
+${relevantStoryIntentGuide(source)}
 
 硬规则：
 1. 必须保留人物、阵营、核心交易或借贷方向、决定冲突的条件、动作执行者、承受者、伤害对象和结局。次要数字、寒暄次序、礼让轮次和场面小动作不必逐项复刻；可按“到场—坐席—提出请求—双方争辩—冲突升级—结局”重新编排。
 2. 不准输出 frame 形式的对白骨架编号，不准写圣经体正文，不准把“若、必、不可、乃是”等风格词填进 elements。
-3. 不要给原文每一句对白都建立 speech。全篇通常整理为 12—36 个 unit；连续寒暄最多保留一个 welcome 或 guide_inside，落座最多一个 invite_seat，重复客气最多保留 courtesy_gift 与 courtesy_refusal 各一个。只有改变局势的请求、拒绝、辩护、警告、威胁、强迫和关键反问必须保留为 speech；其余内容合并成 narration 或删去重复。
+3. 不要给原文每一句对白都建立 speech。全篇严格控制在 ${planningUnitRange(level, sourceLength)} 个 unit 左右；连续寒暄最多保留一个 welcome 或 guide_inside，落座最多一个 invite_seat，重复客气最多保留 courtesy_gift 与 courtesy_refusal 各一个。只有改变局势的请求、拒绝、辩护、警告、威胁、强迫和关键反问必须保留为 speech；其余内容合并成 narration 或删去重复。
 4. elements 只填骨架尚未包含的名词或谓语核心，绝不填整句或半句原台词，也不重复骨架虚词。例如 offer_help.recipientAction 只填“回去照顾病人”，offer_help.action 只填“把东西送到楼上”；exit_threat.condition 只填“这样离开房间”，不可填“你今日若这样走出房子”；boast.action 只填“这样对我说话”，不可填“我长到这么大还没有人敢这样说话”。
 5. introduction.count 只填“一、两、三”等数词，不填“个、人、个人”；names 只填姓名；relation 只填“我的兄弟、同伴、同事”等关系。死亡威胁的 target 只填被威胁者，不填“你的命”或“弄死”。
 6. narration.action 填不含主语、但包含对象和去向的完整动作短语，例如“从手中取出文件，摆在负责人面前”；不得只填“叫了一声”，必须填“叫目标人物的名字”。

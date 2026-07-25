@@ -103,12 +103,11 @@ test("unknown speech functions fall back to a fixed frame instead of free-form p
 test("identification prompt permits only facts and speech functions", () => {
   const prompt = buildSkeletonIdentificationPrompt("张三让李四把文件放下。");
   assert.match(prompt, /整理成与原文文本类型相符的结构骨架，不写正文/);
-  assert.match(prompt, /服务器会按照文本功能决定固定骨架/);
-  assert.match(prompt, /定义仍是定义，事实仍是事实|定义、知识、事实/u);
-  assert.match(prompt, /不准输出 frame 形式的对白骨架编号/);
-  assert.match(prompt, /不要给原文每一句对白都建立 speech/);
-  assert.match(prompt, /同一动作只建立一个 unit/);
-  assert.match(prompt, /选择最接近的 request\/refusal\/command/);
+  assert.match(prompt, /服务器预判类型：factual/);
+  assert.match(prompt, /通常只使用 factual_statement/);
+  assert.match(prompt, /elements 只放原文内容/);
+  assert.match(prompt, /不得增加新事实/);
+  assert.doesNotMatch(prompt, /可用对白功能及应填元素/);
 });
 
 test("the server, not the model, selects the famous sentence skeleton", () => {
@@ -499,7 +498,8 @@ test("story planning favors a coherent scripture tale over line-by-line transcri
     "甲进屋，众人寒暄数句，随后因一笔借款起了冲突。",
   );
   assert.match(prompt, /这不是逐句翻译或影视台词校对/);
-  assert.match(prompt, /12—36 个 unit/);
+  assert.match(prompt, /3—8 个 unit/);
+  assert.match(prompt, /不要重复输出空字符串字段/);
   assert.match(prompt, /到场—坐席—提出请求—双方争辩—冲突升级—结局/);
   assert.match(prompt, /mediation_request 专用于/);
   assert.match(prompt, /单独呼喊一个人的名字只是叫住/);

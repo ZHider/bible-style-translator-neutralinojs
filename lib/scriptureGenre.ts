@@ -18,6 +18,10 @@ const APHORISM_SIGNAL =
   /(?:^(?:祝|愿)(?:你|您|他|她|他们|大家|诸位)|凡|宁可|不可|不要|莫要|应当|总要|惟有|有福|有祸|虽.{0,18}仍|若.{0,28}(?:必|就|便)|只有.{0,28}才|只要.{0,32}(?:就|便|总会|终会|必|能够)|免得.{0,24}(?:后悔|失败|受害|跌倒|错过|惧怕)|(?:说话|做事|行动|决定)之前.{0,24}(?:先|应当|不要)|真正的|至终|终必|早晚|自食其果|种的是什么|收的也是什么|跌倒.{0,12}兴起)/u;
 const BEHAVIOR_RESULT_SIGNAL =
   /(?:坚持|努力|勤劳|懒惰|诚实|欺骗|骄傲|谦卑|忍耐|饶恕|帮助|善待|恶待|拖延|放弃|学习|思考|说话|待人|走捷径).{0,32}(?:成功|失败|收获|果效|回报|后果|进步|跌倒|兴起|站起来|重新开始|失去|得到|得着|看见|显明|后悔|安稳|顺利)/u;
+const NARRATIVE_EVENT_SIGNAL =
+  /(?:^|[。！？；])(?:到了?[^，。；]{0,12}[，,])?(?:我|他|她|他们|她们|众人|大家|[p{Script=Han}A-Za-z·]{2,8})(?:就|便|又|随后|立即|重新|仍|才|于是)?(?:来到|带着|拿出|交给|看见|听见|回答|说道|说|问|叫|吩咐|检查|发现|完成|同意|拒绝|帮助|回去|离开|扑向|刺伤|制住|开始|继续|决定|准许|收拾|提交|修改)/gu;
+const NARRATIVE_TRANSITION_SIGNAL =
+  /(?:那时|一天|清晨|傍晚|晚上|夜里|后来|随后|于是|第二天|到了[^，。；]{0,12}(?:时候|以前|以后|中午|午后|傍晚|晚上)|说完|看完|听见这话)/gu;
 
 function normalizedSource(source: string) {
   return source.trim().replace(/[。！？!?；;s]+$/gu, "");
@@ -35,9 +39,17 @@ export function isAphorismSource(source: string) {
   return APHORISM_SIGNAL.test(value) || BEHAVIOR_RESULT_SIGNAL.test(value);
 }
 
+function isNarrativeSequence(source: string) {
+  const sentenceCount = source.split(/[。！？!?]+/u).filter((item) => item.trim()).length;
+  if (sentenceCount < 3 || [...source].length < 80) return false;
+  const events = [...source.matchAll(NARRATIVE_EVENT_SIGNAL)].length;
+  const transitions = [...source.matchAll(NARRATIVE_TRANSITION_SIGNAL)].length;
+  return events >= 4 && (transitions >= 1 || events >= 7);
+}
+
 export function classifyScriptureSource(source: string): ScriptureSourceGenre {
   const value = normalizedSource(source);
-  if (STORY_SIGNAL.test(value)) return "story";
+  if (STORY_SIGNAL.test(value) || isNarrativeSequence(value)) return "story";
   if (isStrongDefinitionSource(value)) return "definition";
   if (NOTICE_SIGNAL.test(value)) return "notice";
   if (INSTRUCTION_SIGNAL.test(value)) return "instruction";

@@ -112,6 +112,7 @@ try {
     readyState: document.readyState,
     hasReactProps: Object.keys(document.querySelector('.key-button') || {}).some((key) => key.startsWith('__reactProps$')),
     levelButtonCount: document.querySelectorAll('.level-switch button').length,
+    editionButtonCount: document.querySelectorAll('.edition-switch button').length,
     bodyText: document.body?.innerText.slice(0, 160),
     scripts: [...document.scripts].map((script) => script.src).filter(Boolean),
   })`);
@@ -130,6 +131,15 @@ try {
   await delay(100);
   const clickedLevel = await evaluate(
     "[...document.querySelectorAll('.level-switch button')].findIndex((button) => button.classList.contains('active'))",
+  );
+
+  const initialEdition = await evaluate(
+    "[...document.querySelectorAll('.edition-switch button')].findIndex((button) => button.classList.contains('active'))",
+  );
+  await evaluate("document.querySelectorAll('.edition-switch button')[2].click()");
+  await delay(100);
+  const clickedEdition = await evaluate(
+    "[...document.querySelectorAll('.edition-switch button')].findIndex((button) => button.classList.contains('active'))",
   );
 
   await evaluate("document.querySelectorAll('.direction-switch > button')[1].click()");
@@ -155,6 +165,7 @@ try {
 
   const result = {
     levelButton: initialLevel === 1 && clickedLevel === 0,
+    editionButton: initialEdition === 0 && clickedEdition === 2,
     directionButton: directionChanged,
     apiButton: modalOpened,
     exampleButton: exampleFilled,

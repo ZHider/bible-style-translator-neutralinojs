@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeCuvSceneLexicon } from "@/lib/cuvLexicon";
 import {
+  buildEditionPrompt,
   buildPlainPrompt,
   buildScripturePrompt,
+  KJV_SYSTEM_PROMPT,
   PLAIN_SYSTEM_PROMPT,
   SCRIPTURE_SYSTEM_PROMPT,
+  SIGAO_SYSTEM_PROMPT,
   type PlainMode,
   type ScriptureDirection,
+  type ScriptureEdition,
   type ScriptureLevel,
   type ScriptureMode,
 } from "@/lib/prompt";
@@ -28,6 +32,17 @@ import {
   renderScriptureSkeletonPlan,
 } from "@/lib/scriptureSkeletons";
 import { segmentScriptureText } from "@/lib/scriptureVerses";
+import { renderRecognizableSourceAphorism } from "@/lib/cuvAphorismSkeletons";
+import {
+  assessScriptureLength,
+  buildLengthInstruction,
+  getScriptureLengthTarget,
+  structureTokenBudget,
+} from "@/lib/scriptureLength";
+import {
+  isCriticalStoryIssue,
+  splitStoryIssues,
+} from "@/lib/storyIssueSeverity";
 
 export const runtime = "nodejs";
 
@@ -43,6 +58,7 @@ const VALID_MODES = new Set<ScriptureMode>([
   "jonah",
 ]);
 const VALID_LEVELS = new Set<ScriptureLevel>(["light", "standard", "grand"]);
+const VALID_EDITIONS = new Set<ScriptureEdition>(["cuv", "sigao", "kjv"]);
 const VALID_DIRECTIONS = new Set<ScriptureDirection>([
   "to_scripture",
   "to_plain",
@@ -69,18 +85,43 @@ const globalForRateLimit = globalThis as typeof globalThis & {
   scriptureRateLimit?: Map<string, RateRecord>;
 };
 
-function finalizeScriptureResult(source: string, value: string) {
-  let result = normalizeCuvSceneLexicon(
-    source,
-    normalizeUnionNarration(value),
-  );
-  if (
-    hasForbiddenMoralization(source, result) ||
-    !definitionTermsArePreserved(source, result)
-  ) {
-    result = renderSafeFactualSource(source);
+type GenerationMode =
+  | "local_primary"
+  | "structured"
+  | "auto_repaired"
+  | "best_effort"
+  | "fallback";
+
+function finalizeScriptureResult(
+  source: string,
+  value: string,
+  edition: ScriptureEdition = "cuv",
+) {
+  let result = value.trim();
+  if (edition === "cuv") {
+    result = normalizeCuvSceneLexicon(source, normalizeUnionNarration(result));
+    if (
+      hasForbiddenMoralization(source, result) ||
+      !definitionTermsArePreserved(source, result)
+    ) {
+      result = renderSafeFactualSource(source);
+    }
   }
   return { result, verses: segmentScriptureText(result) };
+}
+
+function scriptureResponse(
+  source: string,
+  value: string,
+  edition: ScriptureEdition,
+  generationMode: GenerationMode,
+  warning?: string,
+) {
+  return {
+    ...finalizeScriptureResult(source, value, edition),
+    generationMode,
+    ...(warning ? { warning } : {}),
+  };
 }
 const rateLimit =
   globalForRateLimit.scriptureRateLimit ?? new Map<string, RateRecord>();
@@ -158,18 +199,24 @@ function cleanGeneratedText(value: string) {
 
 function upstreamErrorMessage(status: number, raw: string) {
   const normalized = raw.toLowerCase();
+  if (status === 400 && normalized.includes("supported api model names")) {
+    return "当前配置的模型名称不受接口支持，请将 DEEPSEEK_MODEL 改为 deepseek-v4-flash 或接口列出的可用模型。";
+  }
+  if (status === 400) {
+    return "模型拒绝了本次请求参数，系统没有使用固定兜底稿冒充结果；请检查接口模型配置后重试。";
+  }
   if (status === 401 || status === 403) {
-    return "API Key 无效或没有权限，请检查后重试。";
+    return "模型接口的 API Key 无效或没有权限，请检查 Key、接口地址与模型后重试。";
   }
   if (
     status === 402 ||
     normalized.includes("insufficient balance") ||
     normalized.includes("insufficient quota")
   ) {
-    return "DeepSeek 账户余额或额度不足，请充值后重试。";
+    return "模型接口账户余额或额度不足，请充值后重试。";
   }
   if (status === 429) {
-    return "DeepSeek 当前请求繁忙或触发限流，请稍后再试。";
+    return "模型接口当前繁忙或触发限流，请稍后再试。";
   }
   return "上游模型暂时没有回应，请稍后再试。";
 }
@@ -181,15 +228,149 @@ type DeepSeekCallOptions = {
   maxTokens: number;
   deadlineAt: number;
   temperature?: number;
+  jsonObject?: boolean;
+  model?: string;
+  systemRole?: boolean;
+  tokenField?: "max_tokens" | "max_completion_tokens";
+  omitTemperature?: boolean;
+  reasoningControl?: "deepseek" | "qwen" | false;
+  callTimeoutMs?: number;
 };
 
-async function callDeepSeek(options: DeepSeekCallOptions) {
-  const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com")
+type ModelCapability = {
+  model: string;
+  jsonObject: boolean;
+  systemRole: boolean;
+  tokenField: "max_tokens" | "max_completion_tokens";
+  temperature: boolean;
+  reasoningControl: "deepseek" | "qwen" | false;
+};
+
+const globalForModelCompatibility = globalThis as typeof globalThis & {
+  scriptureModelCapabilities?: Map<string, ModelCapability>;
+};
+const modelCapabilityCache =
+  globalForModelCompatibility.scriptureModelCapabilities ??
+  new Map<string, ModelCapability>();
+globalForModelCompatibility.scriptureModelCapabilities = modelCapabilityCache;
+
+function modelBaseUrl() {
+  return (
+    process.env.AI_BASE_URL ||
+    process.env.DEEPSEEK_BASE_URL ||
+    "https://api.deepseek.com"
+  )
     .replace(/\/+$/, "")
     .replace(/\/chat\/completions$/i, "");
-  const model = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+}
+
+function configuredModel() {
+  return (
+    process.env.AI_MODEL ||
+    process.env.DEEPSEEK_MODEL ||
+    "deepseek-v4-flash"
+  ).trim();
+}
+
+function providerReasoningControl(baseUrl: string) {
+  if (/deepseek/u.test(baseUrl)) return "deepseek" as const;
+  if (/dashscope|aliyun|qwen/u.test(baseUrl)) return "qwen" as const;
+  return false;
+}
+
+function planningCallTimeout(sourceLength: number) {
+  if (sourceLength >= 1000) return 36000;
+  if (sourceLength >= 500) return 30000;
+  if (sourceLength >= 250) return 26000;
+  return 22000;
+}
+
+function providerModelCandidates(baseUrl: string, preferred: string) {
+  const configuredCandidates = (
+    process.env.AI_MODEL_CANDIDATES ||
+    process.env.DEEPSEEK_MODEL_CANDIDATES ||
+    ""
+  )
+    .split(/[,，\s]+/u)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const providerCandidates = /dashscope|aliyun|qwen/u.test(baseUrl)
+    ? ["qwen-plus", "qwen-turbo", "qwen-max"]
+    : /bigmodel|zhipu|glm/u.test(baseUrl)
+      ? ["glm-4-flash", "glm-4-plus", "glm-4"]
+      : /moonshot|kimi/u.test(baseUrl)
+        ? ["kimi-k2-turbo-preview", "moonshot-v1-8k"]
+        : /openai/u.test(baseUrl)
+          ? ["gpt-4.1-mini", "gpt-4o-mini"]
+          : /deepseek/u.test(baseUrl)
+            ? [
+                "deepseek-v4-flash",
+                "deepseek-v4-pro",
+                "deepseek-chat",
+                "deepseek-reasoner",
+              ]
+            : [];
+  return [...new Set([preferred, ...configuredCandidates, ...providerCandidates])];
+}
+
+function errorRaw(error: unknown) {
+  return typeof error === "object" && error && "raw" in error
+    ? String((error as { raw?: string }).raw || "")
+    : "";
+}
+
+function errorStatus(error: unknown) {
+  return typeof error === "object" && error && "status" in error
+    ? Number((error as { status?: number }).status || 0)
+    : 0;
+}
+
+function extractSupportedModels(raw: string) {
+  const matches = raw.match(
+    /\b(?:deepseek|qwen|glm|gpt|o\d|kimi|moonshot|mistral|llama|claude)[A-Za-z0-9._-]*\b/giu,
+  ) || [];
+  return [...new Set(matches)].sort((left, right) => {
+    const fast = (value: string) => Number(/flash|mini|turbo/u.test(value));
+    return fast(right) - fast(left);
+  });
+}
+
+function isModelNameCompatibilityError(raw: string) {
+  return /supported api model|unsupported model|model.{0,20}(?:not found|does not exist|not supported|invalid)|invalid.{0,12}model/u.test(
+    raw,
+  );
+}
+
+function isJsonModeCompatibilityError(raw: string) {
+  return /response_format|json_object|json mode|structured output/u.test(raw) &&
+    /unsupported|not support|unknown|invalid|unrecognized|not allowed/u.test(raw);
+}
+
+function isSystemRoleCompatibilityError(raw: string) {
+  return /system.{0,20}(?:role|message)|role.{0,20}system/u.test(raw) &&
+    /unsupported|not support|invalid|not allowed/u.test(raw);
+}
+
+function isTokenFieldCompatibilityError(raw: string) {
+  return /max_tokens|max_completion_tokens/u.test(raw) &&
+    /unsupported|unknown|unrecognized|invalid/u.test(raw);
+}
+
+function isTemperatureCompatibilityError(raw: string) {
+  return /temperature/u.test(raw) &&
+    /unsupported|not support|unknown|unrecognized|invalid|only the default/u.test(raw);
+}
+
+function isReasoningControlCompatibilityError(raw: string) {
+  return /thinking|enable_thinking|reasoning/u.test(raw) &&
+    /unsupported|not support|unknown|unrecognized|invalid|not allowed|extra inputs/u.test(raw);
+}
+
+async function callDeepSeek(options: DeepSeekCallOptions) {
+  const baseUrl = modelBaseUrl();
+  const model = options.model || configuredModel();
   const configuredCallTimeout = Number(
-    process.env.DEEPSEEK_CALL_TIMEOUT_MS || "22000",
+    process.env.DEEPSEEK_CALL_TIMEOUT_MS || String(options.callTimeoutMs || 22000),
   );
   const callTimeout = Number.isFinite(configuredCallTimeout)
     ? Math.min(Math.max(configuredCallTimeout, 8000), 45000)
@@ -207,13 +388,30 @@ async function callDeepSeek(options: DeepSeekCallOptions) {
     },
     body: JSON.stringify({
       model,
-      messages: [
-        { role: "system", content: options.systemPrompt },
-        { role: "user", content: options.userPrompt },
-      ],
-      temperature: options.temperature ?? 0.2,
-      max_tokens: options.maxTokens,
+      messages: options.systemRole === false
+        ? [
+            {
+              role: "user",
+              content: `${options.systemPrompt}\n\n${options.userPrompt}`,
+            },
+          ]
+        : [
+            { role: "system", content: options.systemPrompt },
+            { role: "user", content: options.userPrompt },
+          ],
+      ...(options.omitTemperature
+        ? {}
+        : { temperature: options.temperature ?? 0.2 }),
+      ...(options.reasoningControl === "deepseek"
+        ? { thinking: { type: "disabled" } }
+        : options.reasoningControl === "qwen"
+          ? { enable_thinking: false }
+          : {}),
+      [options.tokenField || "max_tokens"]: options.maxTokens,
       stream: false,
+      ...(options.jsonObject
+        ? { response_format: { type: "json_object" } }
+        : {}),
     }),
     signal: AbortSignal.timeout(
       Math.max(1000, Math.min(callTimeout, remainingTime)),
@@ -224,6 +422,8 @@ async function callDeepSeek(options: DeepSeekCallOptions) {
   if (!response.ok) {
     throw Object.assign(new Error(upstreamErrorMessage(response.status, raw)), {
       status: response.status,
+      raw,
+      model,
     });
   }
 
@@ -238,19 +438,100 @@ async function callDeepSeek(options: DeepSeekCallOptions) {
   return cleanGeneratedText(result);
 }
 
+async function callCompatibleModel(options: DeepSeekCallOptions) {
+  const baseUrl = modelBaseUrl();
+  const preferred = options.model?.trim() || configuredModel();
+  const cacheKey = `${baseUrl}|${preferred}`;
+  const cached = modelCapabilityCache.get(cacheKey);
+  const modelQueue = providerModelCandidates(baseUrl, preferred);
+  if (cached) {
+    modelQueue.splice(0, modelQueue.length, cached.model, ...modelQueue);
+  }
+
+  let capability: ModelCapability = cached || {
+    model: modelQueue.shift() || preferred,
+    jsonObject: Boolean(options.jsonObject),
+    systemRole: true,
+    tokenField: "max_tokens",
+    temperature: true,
+    reasoningControl: providerReasoningControl(baseUrl),
+  };
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const result = await callDeepSeek({
+        ...options,
+        model: capability.model,
+        jsonObject: options.jsonObject ? capability.jsonObject : false,
+        systemRole: capability.systemRole,
+        tokenField: capability.tokenField,
+        omitTemperature: !capability.temperature,
+        reasoningControl: capability.reasoningControl,
+      });
+      modelCapabilityCache.set(cacheKey, capability);
+      return result;
+    } catch (error) {
+      lastError = error;
+      const status = errorStatus(error);
+      const raw = errorRaw(error).toLowerCase();
+      if (![400, 404, 422].includes(status)) throw error;
+
+      if (options.jsonObject && capability.jsonObject && isJsonModeCompatibilityError(raw)) {
+        capability = { ...capability, jsonObject: false };
+        continue;
+      }
+      if (capability.systemRole && isSystemRoleCompatibilityError(raw)) {
+        capability = { ...capability, systemRole: false };
+        continue;
+      }
+      if (isTokenFieldCompatibilityError(raw)) {
+        capability = {
+          ...capability,
+          tokenField:
+            capability.tokenField === "max_tokens"
+              ? "max_completion_tokens"
+              : "max_tokens",
+        };
+        continue;
+      }
+      if (capability.temperature && isTemperatureCompatibilityError(raw)) {
+        capability = { ...capability, temperature: false };
+        continue;
+      }
+      if (
+        capability.reasoningControl &&
+        isReasoningControlCompatibilityError(raw)
+      ) {
+        capability = { ...capability, reasoningControl: false };
+        continue;
+      }
+      if (isModelNameCompatibilityError(raw)) {
+        const offered = extractSupportedModels(raw);
+        for (const model of [...offered, ...modelQueue]) {
+          if (model && model !== capability.model) {
+            capability = { ...capability, model };
+            modelQueue.splice(0, modelQueue.length, ...modelQueue.filter((item) => item !== model));
+            break;
+          }
+        }
+        if (capability.model !== (error as { model?: string }).model) continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
 function shouldExposeUpstreamError(error: unknown) {
-  const status =
-    typeof error === "object" && error && "status" in error
-      ? Number((error as { status: number }).status)
-      : 0;
-  return [401, 402, 403, 429].includes(status);
+  return [400, 401, 402, 403, 404, 422, 429].includes(errorStatus(error));
 }
 
 export async function POST(request: NextRequest) {
   const apiKey = getUserApiKey(request);
   if (!apiKey || apiKey.length < 20 || /\s/.test(apiKey)) {
     return NextResponse.json(
-      { error: "请先配置有效的 DeepSeek API Key。" },
+      { error: "请先配置有效的模型 API Key。" },
       { status: 401 },
     );
   }
@@ -275,7 +556,13 @@ export async function POST(request: NextRequest) {
   const direction = payload.direction as ScriptureDirection;
   const mode = payload.mode as ScriptureMode;
   const level = payload.level as ScriptureLevel;
+  const edition = (payload.edition || "cuv") as ScriptureEdition;
+  const requestedModel =
+    typeof payload.model === "string" ? payload.model.trim() : "";
   const plainMode = payload.plainMode as PlainMode;
+  const variation = Number.isFinite(Number(payload.variation))
+    ? Math.max(0, Math.min(99, Number(payload.variation)))
+    : 0;
   const isPlainDirection = direction === "to_plain";
 
   if (!text) {
@@ -283,6 +570,18 @@ export async function POST(request: NextRequest) {
   }
   if (!VALID_DIRECTIONS.has(direction) || !VALID_LEVELS.has(level)) {
     return NextResponse.json({ error: "转换选项无效。" }, { status: 400 });
+  }
+  if (!isPlainDirection && !VALID_EDITIONS.has(edition)) {
+    return NextResponse.json({ error: "译本风格选项无效。" }, { status: 400 });
+  }
+  if (
+    requestedModel &&
+    !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/u.test(requestedModel)
+  ) {
+    return NextResponse.json(
+      { error: "模型名称格式无效；请只使用字母、数字、点、横线、斜线或冒号。" },
+      { status: 400 },
+    );
   }
   if (!isPlainDirection && !VALID_MODES.has(mode)) {
     return NextResponse.json({ error: "文体选项无效。" }, { status: 400 });
@@ -317,8 +616,9 @@ export async function POST(request: NextRequest) {
 
   try {
     if (isPlainDirection) {
-      const result = await callDeepSeek({
+      const result = await callCompatibleModel({
         apiKey,
+        model: requestedModel || undefined,
         deadlineAt,
         systemPrompt: PLAIN_SYSTEM_PROMPT,
         userPrompt: buildPlainPrompt(text, level, plainMode),
@@ -329,85 +629,269 @@ export async function POST(request: NextRequest) {
     }
 
     const sourceGenre = classifyScriptureSource(text);
-    if (mode === "original" && sourceGenre === "definition") {
+    const lengthTarget = getScriptureLengthTarget(text, sourceGenre, level, edition);
+
+    if (edition === "cuv" && mode === "original" && sourceGenre === "definition") {
       return NextResponse.json(
-        finalizeScriptureResult(text, renderDefinitionSource(text)),
+        scriptureResponse(
+          text,
+          renderDefinitionSource(text),
+          edition,
+          "local_primary",
+        ),
       );
     }
 
-    if (mode === "original") {
+    const recognizableAphorism =
+      edition === "cuv" && sourceGenre === "aphorism"
+        ? renderRecognizableSourceAphorism(text)
+        : "";
+    if (recognizableAphorism && level !== "grand" && variation === 0) {
+      return NextResponse.json(
+        scriptureResponse(
+          text,
+          recognizableAphorism,
+          edition,
+          "local_primary",
+        ),
+      );
+    }
+
+    if (edition === "cuv" && mode === "original") {
       let plan = null;
       let bestPlan = null;
       let bestScore = -1;
+      let bestIssues: string[] = [];
+      let bestAttempt = 0;
       let previousIssues: string[] = [];
-      for (let attempt = 0; attempt < 3 && Date.now() < deadlineAt - 5000; attempt += 1) {
+      const generationDiagnostics: Array<Record<string, unknown>> = [];
+      const includeDiagnostics = process.env.TRANSLATION_DEBUG === "1";
+      for (let attempt = 0; attempt < 2 && Date.now() < deadlineAt - 4500; attempt += 1) {
         try {
-          const rawPlan = await callDeepSeek({
+          const rawPlan = await callCompatibleModel({
             apiKey,
+            model: requestedModel || undefined,
             deadlineAt,
             systemPrompt:
               "你是和合本风格改写器的结构编辑。先保持输入原有文本类型：定义仍是定义，事实仍是事实，通知仍是通知，格言仍是格言，祝愿仍是祝愿，故事才整理成故事。只输出严格 JSON，不得选择经文，不得写正文。人物故事只在顶层 reflection 中提取一组由原文支持的人物、具体行为、实际结果、逻辑关系、褒贬方向和逐字证据；不得在 units 中写故事格言，不得凭空添加祝福、咒诅、因果或评价。",
-            userPrompt: buildSkeletonIdentificationPrompt(text, previousIssues),
-            maxTokens,
+            userPrompt: `${buildSkeletonIdentificationPrompt(text, previousIssues, level)}\n本次变化编号：${variation}。编号大于零时，可在语义兼容的骨架之间换一种表达。`,
+            maxTokens: Math.min(
+              maxTokens,
+              structureTokenBudget(text, sourceGenre, level),
+            ),
             temperature: 0.05,
+            jsonObject: true,
+            callTimeoutMs: planningCallTimeout([...text].length),
           });
           const parsedPlan = parseScriptureSkeletonPlan(rawPlan);
           if (!parsedPlan) {
             previousIssues = ["返回内容不是可解析的完整结构 JSON"];
+            if (includeDiagnostics) {
+              generationDiagnostics.push({
+                attempt,
+                stage: "parse_failed",
+                rawLength: [...rawPlan].length,
+              });
+            }
             continue;
           }
-          const planIssues = assessScriptureStoryPlan(parsedPlan, text);
           const groundedPlan = groundScriptureSkeletonPlan(parsedPlan, text);
+          const planIssues = assessScriptureStoryPlan(groundedPlan, text);
           const candidateResult = renderScriptureSkeletonPlan(groundedPlan, text);
           const resultAssessment = assessScriptureStoryResult(text, candidateResult);
+          const lengthAssessment = assessScriptureLength(
+            candidateResult,
+            lengthTarget,
+            edition,
+          );
+          const allIssues = [
+            ...planIssues,
+            ...resultAssessment.issues,
+            ...(lengthAssessment.acceptable ? [] : [lengthAssessment.issue]),
+          ];
+          const { critical, advisory } = splitStoryIssues(allIssues, text, level);
           const assessment = {
-            acceptable: resultAssessment.acceptable && planIssues.length === 0,
-            score: Math.max(0, resultAssessment.score - planIssues.length * 0.08),
-            issues: [...planIssues, ...resultAssessment.issues],
+            acceptable: critical.length === 0 && lengthAssessment.acceptable,
+            score: Math.max(
+              0,
+              resultAssessment.score - critical.length * 0.24 - advisory.length * 0.025,
+            ),
+            issues: allIssues,
+            critical,
           };
-          if (assessment.score > bestScore) {
+          if (includeDiagnostics) {
+            generationDiagnostics.push({
+              attempt,
+              stage: "assessed",
+              unitCount: groundedPlan.units.length,
+              outputLength: [...candidateResult].length,
+              critical,
+              advisory,
+            });
+          }
+          if (assessment.critical.length === 0 && assessment.score > bestScore) {
             bestScore = assessment.score;
             bestPlan = groundedPlan;
+            bestIssues = assessment.issues;
+            bestAttempt = attempt;
           }
           if (assessment.acceptable) {
             plan = groundedPlan;
+            bestIssues = assessment.issues;
+            bestAttempt = attempt;
             break;
           }
-          previousIssues = assessment.issues;
+          previousIssues = assessment.critical.length
+            ? assessment.critical
+            : assessment.issues.filter((issue) => /篇幅/u.test(issue));
+          if (!previousIssues.length) {
+            plan = groundedPlan;
+            break;
+          }
         } catch (error) {
           if (shouldExposeUpstreamError(error)) throw error;
+          if (includeDiagnostics) {
+            generationDiagnostics.push({
+              attempt,
+              stage: "request_failed",
+              name: error instanceof Error ? error.name : "unknown",
+              message: error instanceof Error ? error.message : "unknown",
+            });
+          }
           previousIssues = ["上一次结构生成中断，必须重新输出完整 JSON"];
         }
       }
 
       plan ??= bestPlan;
 
-      let rendered = plan
-        ? renderScriptureSkeletonPlan(plan, text)
-        : renderEmergencyScripture(text);
-      if (
-        sourceGenre === "story" &&
-        !assessScriptureStoryResult(text, rendered).acceptable
-      ) {
-        rendered = renderEmergencyScripture(text);
+      if (plan) {
+        const rendered = renderScriptureSkeletonPlan(plan, text);
+        const warning = bestIssues.length
+          ? "正文已经生成；系统保留了事实正确的最佳版本，个别篇幅或风格指标可能未完全达到目标。"
+          : undefined;
+        return NextResponse.json({
+          ...scriptureResponse(
+            text,
+            rendered,
+            edition,
+            bestAttempt > 0 ? "auto_repaired" : warning ? "best_effort" : "structured",
+            warning,
+          ),
+          ...(includeDiagnostics ? { diagnostics: generationDiagnostics } : {}),
+        });
       }
-      return NextResponse.json(finalizeScriptureResult(text, rendered));
+
+      const fallback = renderEmergencyScripture(text);
+      return NextResponse.json({
+        ...scriptureResponse(
+          text,
+          fallback,
+          edition,
+          "fallback",
+          "结构化生成未能在本次时间内通过事实校验，现已返回保守版本；你可以点击“再写一次”重试。",
+        ),
+        ...(includeDiagnostics ? { diagnostics: generationDiagnostics } : {}),
+      });
     }
 
-    const generated = await callDeepSeek({
+    if (edition !== "cuv") {
+      let bestResult = "";
+      let bestDistance = Number.POSITIVE_INFINITY;
+      let retryIssues: string[] = [];
+      for (let attempt = 0; attempt < 2 && Date.now() < deadlineAt - 3500; attempt += 1) {
+        let generated = "";
+        try {
+          generated = await callCompatibleModel({
+            apiKey,
+            model: requestedModel || undefined,
+            deadlineAt,
+            systemPrompt: edition === "kjv" ? KJV_SYSTEM_PROMPT : SIGAO_SYSTEM_PROMPT,
+            userPrompt: buildEditionPrompt(
+              text,
+              edition,
+              buildLengthInstruction(lengthTarget, level),
+              variation,
+              retryIssues,
+            ),
+            maxTokens: Math.min(
+              maxTokens,
+              Math.max(700, structureTokenBudget(text, sourceGenre, level)),
+            ),
+            temperature: attempt === 0 ? 0.42 : 0.25,
+          });
+        } catch (error) {
+          if (shouldExposeUpstreamError(error) || attempt > 0) throw error;
+          retryIssues = ["The previous generation was interrupted; return one complete rewritten text."];
+          continue;
+        }
+        const lengthAssessment = assessScriptureLength(generated, lengthTarget, edition);
+        const storyIssues =
+          edition === "sigao" && sourceGenre === "story"
+            ? assessScriptureStoryResult(text, generated).issues.filter((issue) =>
+                isCriticalStoryIssue(issue, text, level),
+              )
+            : [];
+        const distance = Math.abs(lengthAssessment.actual - lengthTarget.ideal) + storyIssues.length * 1000;
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestResult = generated;
+        }
+        if (lengthAssessment.acceptable && storyIssues.length === 0) {
+          return NextResponse.json(
+            scriptureResponse(
+              text,
+              generated,
+              edition,
+              attempt ? "auto_repaired" : "structured",
+            ),
+          );
+        }
+        retryIssues = [
+          ...(lengthAssessment.acceptable ? [] : [lengthAssessment.issue]),
+          ...storyIssues,
+        ];
+      }
+      if (bestResult) {
+        return NextResponse.json(
+          scriptureResponse(
+            text,
+            bestResult,
+            edition,
+            "best_effort",
+            "正文已经生成，但篇幅或事实校验仍有轻微偏差；系统展示了本次最佳版本。",
+          ),
+        );
+      }
+    }
+
+    const generated = await callCompatibleModel({
       apiKey,
+      model: requestedModel || undefined,
       deadlineAt,
       systemPrompt: SCRIPTURE_SYSTEM_PROMPT,
       userPrompt: buildScripturePrompt(text, mode, level),
       maxTokens,
       temperature: 0.55,
     });
-    return NextResponse.json(finalizeScriptureResult(text, generated));
+    return NextResponse.json(
+      scriptureResponse(text, generated, edition, "structured"),
+    );
   } catch (error) {
     if (error instanceof DOMException && error.name === "TimeoutError") {
+      if ((payload.edition || "cuv") === "cuv") {
+        return NextResponse.json(
+          scriptureResponse(
+            text,
+            renderEmergencyScripture(text),
+            "cuv",
+            "fallback",
+            "模型请求超时，现已返回保守版本；它不是完整生成结果，建议点击“再写一次”。",
+          ),
+        );
+      }
       return NextResponse.json(
-        finalizeScriptureResult(text, renderEmergencyScripture(text)),
-        { status: 200 },
+        { error: "模型请求超时，系统没有用固定套话冒充结果，请稍后重试。" },
+        { status: 504 },
       );
     }
     const message = error instanceof Error ? error.message : "转换失败，请稍后重试。";

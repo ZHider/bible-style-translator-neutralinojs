@@ -540,6 +540,43 @@ a {
   gap: 8px;
 }
 
+.edition-switch {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.edition-switch button {
+  display: grid;
+  gap: 4px;
+  min-height: 68px;
+  padding: 12px 15px;
+  cursor: pointer;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.28);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+
+.edition-switch button.active {
+  color: var(--parchment-light);
+  background: var(--olive);
+  border-color: var(--olive);
+}
+
+.edition-switch strong {
+  font-family: "Noto Serif SC", serif;
+}
+
+.edition-switch span {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.edition-switch .active span {
+  color: rgba(248, 241, 227, 0.72);
+}
+
 .level-switch button {
   display: grid;
   gap: 2px;
@@ -698,6 +735,16 @@ textarea::placeholder {
   color: #8e302a;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.warning-message {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  color: #6e531d;
+  background: rgba(214, 180, 109, 0.16);
+  border-left: 3px solid #c49a47;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .result-text {
@@ -1039,6 +1086,10 @@ pre {
   font-weight: 700;
 }
 
+.key-modal .model-label {
+  margin-top: 16px;
+}
+
 .key-input-wrap {
   display: flex;
   align-items: center;
@@ -1247,6 +1298,7 @@ pre {
 
   .mode-grid,
   .mode-grid.plain,
+  .edition-switch,
   .writing-grid,
   .skill-section {
     grid-template-columns: 1fr;
