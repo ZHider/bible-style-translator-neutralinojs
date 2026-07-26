@@ -1,70 +1,62 @@
 /**
  * 构建后准备 Neutralinojs 资源目录。
- *
- * 1. 从 .next-desktop/ 复制 Next.js 静态导出到 resources/
- * 2. 从 public/ 复制静态文件到 resources/
- * 3. 在 resources/index.html 头部注入 bundle 引用
  */
-
+import { createWriteStream } from "node:fs";
 import { cp, mkdir, readFile, writeFile, readdir, stat } from "node:fs/promises";
+import { get } from "node:https";
 import { resolve } from "node:path";
+
+const NEUTRALINOJS_VERSION = "v6.9.0";
+const NEUTRALINOJS_CLIENT_URL =
+  `https://github.com/neutralinojs/neutralino.js/releases/download/${NEUTRALINOJS_VERSION}/neutralino.js`;
 
 const sourceDir = resolve(".next-desktop");
 const publicDir = resolve("public");
 const resourcesDir = resolve("resources");
 
 async function ensureDirectory(dir) {
-  try {
-    await stat(dir);
-  } catch {
-    await mkdir(dir, { recursive: true });
-  }
+  try { await stat(dir); } catch { await mkdir(dir, { recursive: true }); }
 }
 
 async function copyDirectory(source, target) {
-  try {
-    await stat(source);
-  } catch {
-    return;
-  }
+  try { await stat(source); } catch { return; }
   await ensureDirectory(target);
   await cp(source, target, { recursive: true, force: true });
 }
 
-async function collectHtmlFiles(dir) {
-  const files = [];
-  async function walk(current) {
-    const entries = await readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        await walk(full);
-      } else if (entry.name.endsWith(".html")) {
-        files.push(full);
+async function downloadNeutralinoJs(targetPath) {
+  try {
+    await stat(targetPath);
+    return; // already exists
+  } catch { /* download */ }
+  console.log(`Downloading neutralino.js v${NEUTRALINOJS_VERSION}...`);
+  await new Promise((resolve, reject) => {
+    get(NEUTRALINOJS_CLIENT_URL, (response) => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`Download failed: ${response.statusCode}`));
+        return;
       }
-    }
-  }
-  await walk(dir);
-  return files;
+      const file = createWriteStream(targetPath);
+      response.pipe(file);
+      file.on("finish", () => { file.close(); resolve(); });
+    }).on("error", reject);
+  });
 }
 
 async function prepare() {
-  // 1. 确保 resources 目录存在
   await ensureDirectory(resourcesDir);
 
-  // 2. 复制 Next.js 静态导出 (SPA + _next/static)
-  const spaDir = resolve(sourceDir);
+  // 1. 复制 Next.js 静态导出
   try {
-    await stat(spaDir);
-    // 复制完整的静态导出目录内容
-    await copyDirectory(spaDir, resourcesDir);
-    console.log(`Copied static export from ${spaDir} to ${resourcesDir}`);
+    await stat(sourceDir);
+    await copyDirectory(sourceDir, resourcesDir);
+    console.log(`Copied static export from ${sourceDir}`);
   } catch {
-    console.warn(`Static export directory not found: ${spaDir}`);
-    console.warn("Did you run 'npx next build --config next.desktop.config.ts' first?");
+    console.warn(`Static export not found: ${sourceDir}`);
+    console.warn("Run 'cross-env NEXT_PUBLIC_DESKTOP=true next build' first");
   }
 
-  // 3. 复制 public/ 目录内容（覆盖合并 images/, downloads/ 等）
+  // 2. 合并 public/ 资源
   try {
     const publicEntries = await readdir(publicDir, { withFileTypes: true });
     for (const entry of publicEntries) {
@@ -76,12 +68,12 @@ async function prepare() {
         await cp(sourcePath, targetPath, { force: true });
       }
     }
-    console.log(`Merged public/ assets into ${resourcesDir}`);
-  } catch {
-    // public/ might not exist
-  }
+  } catch { /* public/ may not exist */ }
 
-  // 4. 确保 index.html 中存在 viewport meta（Neutralinojs 需要）
+  // 3. 下载 neutralino.js（Neutralinojs 客户端库）
+  await downloadNeutralinoJs(resolve(resourcesDir, "neutralino.js"));
+
+  // 4. 注入 viewport meta
   const indexPath = resolve(resourcesDir, "index.html");
   try {
     let html = await readFile(indexPath, "utf8");
@@ -91,21 +83,15 @@ async function prepare() {
         '<head>\n  <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
       );
       await writeFile(indexPath, html, "utf8");
-      console.log("Added viewport meta to index.html");
     }
-
-    // 确保 Neutralinojs 的 preload 脚本存在
     if (!html.includes("neutralino.js")) {
       html = html.replace(
         "</body>",
         '  <script src="neutralino.js"></script>\n</body>',
       );
       await writeFile(indexPath, html, "utf8");
-      console.log("Added neutralino.js preload script to index.html");
     }
-  } catch {
-    console.warn("index.html not found in resources");
-  }
+  } catch { console.warn("index.html not found in resources"); }
 
   console.log("Neutralinojs resources prepared successfully.");
 }

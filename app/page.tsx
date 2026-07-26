@@ -208,6 +208,10 @@ export default function Home() {
   );
 
   useEffect(() => {
+    // Neutralinojs 桌面端初始化
+    if (typeof Neutralino !== "undefined") {
+      Neutralino.init();
+    }
     const stored = window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() || "";
     const storedModel = window.localStorage.getItem(API_MODEL_STORAGE_KEY)?.trim() || "";
     setApiKey(stored);

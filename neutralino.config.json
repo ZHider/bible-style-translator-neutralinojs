@@ -1,15 +1,19 @@
 {
-  "appName": "圣经体翻译器",
+  "applicationId": "com.lizi605.biblestyletranslator",
   "version": "1.1.1",
+  "defaultMode": "window",
   "port": 0,
+  "url": "/",
   "documentRoot": "/resources/",
   "enableServer": true,
-  "singlePageApp": true,
-  "chromiumArgs": [],
-  "nativeBlockList": [
-    "filesystem.*",
-    "os.*",
-    "debug.*"
+  "enableNativeAPI": true,
+  "singlePageServe": true,
+  "logging": {
+    "writeToLogFile": false
+  },
+  "nativeAllowList": [
+    "app.*",
+    "net.*"
   ],
   "modes": {
     "window": {
@@ -29,10 +33,8 @@
   },
   "cli": {
     "binaryName": "bible-style-translator",
-    "resources": [
-      "resources/**/*"
-    ],
-    "extensions": [],
-    "binaryVersion": "6.9.0"
+    "resourcesPath": "/resources/",
+    "clientLibrary": "/resources/neutralino.js",
+    "extensions": []
   }
 }

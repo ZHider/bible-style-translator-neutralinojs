@@ -15,13 +15,13 @@
     "test": "tsx --test scripts/*.test.ts",
     "typecheck": "tsc --noEmit",
     "public:audit": "node scripts/public-audit.mjs",
-    "desktop:build": "NEXT_PUBLIC_DESKTOP=true next build && node scripts/prepare-neutralino-assets.mjs",
-    "desktop:run": "pnpm desktop:build && pnpx @neutralinojs/neu run",
-    "desktop:dist": "pnpm desktop:build && pnpx @neutralinojs/neu build --release",
+    "desktop:build": "cross-env NEXT_PUBLIC_DESKTOP=true next build && node scripts/prepare-neutralino-assets.mjs",
+    "desktop:run": "pnpm desktop:build && neu run",
+    "desktop:dist": "pnpm desktop:build && neu build --release",
     "cf:build": "opennextjs-cloudflare build && node scripts/prepare-cloudflare-assets.mjs",
-    "preview": "npm run cf:build && opennextjs-cloudflare preview",
-    "deploy": "npm run cf:build && opennextjs-cloudflare deploy",
-    "upload": "npm run cf:build && opennextjs-cloudflare upload",
+    "preview": "pnpm cf:build && opennextjs-cloudflare preview",
+    "deploy": "pnpm cf:build && opennextjs-cloudflare deploy",
+    "upload": "pnpm cf:build && opennextjs-cloudflare upload",
     "cf:typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
@@ -36,6 +36,7 @@
     "@types/node": "24.10.1",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
+    "cross-env": "^10.1.0",
     "tsx": "^4.20.6",
     "typescript": "5.9.3",
     "wrangler": "^4.103.0"

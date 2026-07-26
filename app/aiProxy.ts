@@ -3,25 +3,6 @@
  * 绕过 WebView CORS 限制。不依赖任何 Node.js API。
  */
 
-// Neutralino.net 不识别 @types 声明，需扩展全局
-declare const Neutralino: {
-  net: {
-    post: (
-      url: string,
-      options: {
-        headers?: Record<string, string>;
-        body?: string;
-        timeout?: number;
-      },
-    ) => Promise<{
-      status: number;
-      statusText: string;
-      body: string;
-      headers: Record<string, string>;
-    }>;
-  };
-};
-
 export type DeepSeekCallOptions = {
   apiKey: string;
   systemPrompt: string;
