@@ -21,4 +21,11 @@ declare const Neutralino: {
       headers: Record<string, string>;
     }>;
   };
+  storage: {
+    setData: (key: string, data: string) => Promise<void>;
+    getData: (key: string) => Promise<string>;
+    removeData: (key: string) => Promise<void>;
+    clear: () => Promise<void>;
+    getKeys: () => Promise<string[]>;
+  };
 };

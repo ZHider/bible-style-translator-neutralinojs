@@ -27,16 +27,13 @@ import {
   type TranslatePipelineOptions,
   type TranslatePipelineResult,
 } from "@/app/translatePipeline";
+import { getItem, setItem, removeItem, STORAGE_KEYS } from "@/lib/storage";
 import type {
   PlainMode,
   ScriptureDirection,
   ScriptureEdition,
   ScriptureLevel,
 } from "@/lib/prompt";
-
-const API_KEY_STORAGE_KEY = "bible-style-deepseek-api-key";
-const API_MODEL_STORAGE_KEY = "bible-style-api-model";
-const CLIENT_ID_STORAGE_KEY = "bible-style-client-id";
 
 const directions: Array<{
   id: ScriptureDirection;
@@ -112,11 +109,11 @@ function createClientId() {
   return `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function getClientId() {
-  const stored = window.localStorage.getItem(CLIENT_ID_STORAGE_KEY);
+async function getClientId() {
+  const stored = await getItem(STORAGE_KEYS.CLIENT_ID);
   if (stored) return stored;
   const next = createClientId();
-  window.localStorage.setItem(CLIENT_ID_STORAGE_KEY, next);
+  await setItem(STORAGE_KEYS.CLIENT_ID, next);
   return next;
 }
 
@@ -206,18 +203,20 @@ export default function Home() {
         : result,
     [isPlainDirection, result, verses],
   );
-
   useEffect(() => {
     // Neutralinojs 桌面端初始化
     if (typeof Neutralino !== "undefined") {
       Neutralino.init();
     }
-    const stored = window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() || "";
-    const storedModel = window.localStorage.getItem(API_MODEL_STORAGE_KEY)?.trim() || "";
-    setApiKey(stored);
-    setDraftApiKey(stored);
-    setApiModel(storedModel);
-    setDraftApiModel(storedModel);
+    // 异步加载持久化的 API Key 和模型名
+    (async () => {
+      const stored = (await getItem(STORAGE_KEYS.API_KEY))?.trim() || "";
+      const storedModel = (await getItem(STORAGE_KEYS.API_MODEL))?.trim() || "";
+      setApiKey(stored);
+      setDraftApiKey(stored);
+      setApiModel(storedModel);
+      setDraftApiModel(storedModel);
+    })();
   }, []);
 
   useEffect(() => {
@@ -256,7 +255,7 @@ export default function Home() {
     setIsKeyModalOpen(true);
   }
 
-  function saveApiKey() {
+  async function saveApiKey() {
     const next = draftApiKey.trim();
     if (!next) {
       setError("请输入模型 API Key。");
@@ -267,18 +266,18 @@ export default function Home() {
       setError("模型名称格式无效。");
       return;
     }
-    window.localStorage.setItem(API_KEY_STORAGE_KEY, next);
-    if (nextModel) window.localStorage.setItem(API_MODEL_STORAGE_KEY, nextModel);
-    else window.localStorage.removeItem(API_MODEL_STORAGE_KEY);
+    await setItem(STORAGE_KEYS.API_KEY, next);
+    if (nextModel) await setItem(STORAGE_KEYS.API_MODEL, nextModel);
+    else await removeItem(STORAGE_KEYS.API_MODEL);
     setApiKey(next);
     setApiModel(nextModel);
     setError("");
     setIsKeyModalOpen(false);
   }
 
-  function clearApiKey() {
-    window.localStorage.removeItem(API_KEY_STORAGE_KEY);
-    window.localStorage.removeItem(API_MODEL_STORAGE_KEY);
+  async function clearApiKey() {
+    await removeItem(STORAGE_KEYS.API_KEY);
+    await removeItem(STORAGE_KEYS.API_MODEL);
     setApiKey("");
     setDraftApiKey("");
     setApiModel("");
@@ -286,7 +285,6 @@ export default function Home() {
     setIsKeyModalOpen(false);
     setError("本机保存的 API Key 已清除。");
   }
-
   async function submit(regenerate = false) {
     const trimmed = text.trim();
     if (!trimmed || isLoading) return;
@@ -337,7 +335,7 @@ export default function Home() {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
-            "X-Client-Id": getClientId(),
+            "X-Client-Id": await getClientId(),
           },
           body: JSON.stringify({
             text: trimmed,

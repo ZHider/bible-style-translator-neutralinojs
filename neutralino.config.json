@@ -13,7 +13,8 @@
   },
   "nativeAllowList": [
     "app.*",
-    "net.*"
+    "net.*",
+    "storage.*"
   ],
   "modes": {
     "window": {
@@ -23,7 +24,7 @@
       "minWidth": 980,
       "minHeight": 700,
       "icon": "/resources/images/icon.png",
-      "enableInspector": false,
+      "enableInspector": true,
       "borderless": false,
       "maximize": false,
       "hidden": false,
