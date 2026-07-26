@@ -352,10 +352,10 @@ export async function translatePipeline(
             plan = groundedPlan;
             break;
           }
-          logDebugStage("decision", `需要重试，反馈问题: ${previousIssues.slice(0, 3).join("; ")}`);
+          logDebugStage("decision", "需要重试，反馈问题:", previousIssues.slice(0, 3));
         } catch (error) {
           if (shouldExposeUpstreamError(error)) throw error;
-          logDebugStage("decision", `调用异常: ${error instanceof Error ? error.message : String(error)}，设 previousIssues 重试`);
+          logDebugStage("decision", "调用异常，设 previousIssues 重试:", error);
           previousIssues = ["上一次结构生成中断，必须重新输出完整 JSON"];
         }
       }
@@ -437,7 +437,7 @@ export async function translatePipeline(
           logDebugStage("decision", factuallySafe ? "结果事实安全但篇幅不达标，继续尝试" : "结果事实不安全，继续尝试");
         } catch (error) {
           if (shouldExposeUpstreamError(error)) throw error;
-          logDebugStage("decision", `调用异常: ${error instanceof Error ? error.message : String(error)}`);
+          logDebugStage("decision", "调用异常:", error);
         }
       }
 
@@ -487,7 +487,7 @@ export async function translatePipeline(
           logDebugStage("output", "AI 返回:", generated);
         } catch (error) {
           if (shouldExposeUpstreamError(error) || attempt > 0) throw error;
-          logDebugStage("decision", `调用异常，设 retryIssues 重试: ${error instanceof Error ? error.message : String(error)}`);
+          logDebugStage("decision", "调用异常，设 retryIssues 重试:", error);
           retryIssues = ["The previous generation was interrupted; return one complete rewritten text."];
           continue;
         }
@@ -513,7 +513,7 @@ export async function translatePipeline(
           return buildScriptureResponse(text, generated, options.edition, attempt ? "auto_repaired" : "structured");
         }
         retryIssues = [...(lengthAssessment.acceptable ? [] : [lengthAssessment.issue]), ...storyIssues];
-        logDebugStage("decision", `需要重试，问题: ${retryIssues.slice(0, 3).join("; ")}`);
+        logDebugStage("decision", "需要重试，问题:", retryIssues.slice(0, 3));
       }
       if (bestResult) {
         logDebugStage("decision", `采用 best_effort 方案, distance=${bestDistance.toFixed(0)}`);
@@ -540,7 +540,7 @@ export async function translatePipeline(
       };
     }
     const message = error instanceof Error ? error.message : "转换失败，请稍后重试。";
-    logDebugStage("decision", `❌ 未捕获异常: ${message}`);
+    logDebugStage("decision", "❌ 未捕获异常:", error);
     return { error: message, result: "", verses: [] };
   }
 }
