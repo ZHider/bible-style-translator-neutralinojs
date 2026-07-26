@@ -25,3 +25,8 @@ test-runs/
 /video/*.mp3
 /video/*.mp3.json
 /video/*字幕时间轴.json
+neutralinojs.github.io-main
+.codegraph
+.next-desktop
+resources/
+.tmp/

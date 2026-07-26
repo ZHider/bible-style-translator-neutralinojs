@@ -1,0 +1,38 @@
+{
+  "appName": "圣经体翻译器",
+  "version": "1.1.1",
+  "port": 0,
+  "documentRoot": "/resources/",
+  "enableServer": true,
+  "singlePageApp": true,
+  "chromiumArgs": [],
+  "nativeBlockList": [
+    "filesystem.*",
+    "os.*",
+    "debug.*"
+  ],
+  "modes": {
+    "window": {
+      "title": "《圣经》文体翻译器",
+      "width": 1440,
+      "height": 960,
+      "minWidth": 980,
+      "minHeight": 700,
+      "icon": "/resources/images/icon.png",
+      "enableInspector": false,
+      "borderless": false,
+      "maximize": false,
+      "hidden": false,
+      "resizable": true,
+      "exitProcessOnClose": true
+    }
+  },
+  "cli": {
+    "binaryName": "bible-style-translator",
+    "resources": [
+      "resources/**/*"
+    ],
+    "extensions": [],
+    "binaryVersion": "6.9.0"
+  }
+}

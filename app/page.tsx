@@ -22,6 +22,11 @@ import {
   formatScriptureVerses,
   type ScriptureVerse,
 } from "@/lib/scriptureVerses";
+import {
+  translatePipeline,
+  type TranslatePipelineOptions,
+  type TranslatePipelineResult,
+} from "@/app/translatePipeline";
 import type {
   PlainMode,
   ScriptureDirection,
@@ -302,37 +307,59 @@ export default function Home() {
     if (regenerate) setVariation(nextVariation);
 
     try {
-      const response = await fetch("/api/translate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          "X-Client-Id": getClientId(),
-        },
-        body: JSON.stringify({
+      const desktop = typeof process !== "undefined" && process.env.NEXT_PUBLIC_DESKTOP === "true";
+
+      if (desktop) {
+        const payload = await translatePipeline({
           text: trimmed,
           direction,
           mode: "original",
           plainMode,
           level,
           edition,
-          model: apiModel || undefined,
+          apiKey,
+          apiModel: apiModel || undefined,
           variation: nextVariation,
-        }),
-      });
-      const payload = (await response.json()) as {
-        result?: string;
-        verses?: ScriptureVerse[];
-        warning?: string;
-        generationMode?: string;
-        error?: string;
-      };
-      if (!response.ok || !payload.result) {
-        throw new Error(payload.error || "转换失败，请稍后再试。");
+        });
+        if (payload.error) {
+          throw new Error(payload.error);
+        }
+        setResult(payload.result);
+        setVerses(isPlainDirection ? [] : payload.verses || []);
+        setWarning(payload.warning || "");
+      } else {
+        const response = await fetch("/api/translate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+            "X-Client-Id": getClientId(),
+          },
+          body: JSON.stringify({
+            text: trimmed,
+            direction,
+            mode: "original",
+            plainMode,
+            level,
+            edition,
+            model: apiModel || undefined,
+            variation: nextVariation,
+          }),
+        });
+        const payload = (await response.json()) as {
+          result?: string;
+          verses?: ScriptureVerse[];
+          warning?: string;
+          generationMode?: string;
+          error?: string;
+        };
+        if (!response.ok || !payload.result) {
+          throw new Error(payload.error || "转换失败，请稍后再试。");
+        }
+        setResult(payload.result);
+        setVerses(isPlainDirection ? [] : payload.verses || []);
+        setWarning(payload.warning || "");
       }
-      setResult(payload.result);
-      setVerses(isPlainDirection ? [] : payload.verses || []);
-      setWarning(payload.warning || "");
       window.setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
     } catch (requestError) {
       setResult("");
