@@ -4,9 +4,33 @@ import { findLowRetentionUnionDialogues } from "../lib/scriptureQuality";
 import {
   buildSkeletonIdentificationPrompt,
   parseScriptureSkeletonPlan,
-  renderEmergencyScripture,
   renderScriptureSkeletonPlan,
 } from "../lib/scriptureSkeletons";
+
+test("truncated structured JSON keeps complete recognized units", () => {
+  const truncated =
+    '{"textType":"记事","units":[' +
+    '{"kind":"narration","frame":"arrival","actor":"小周","place":"办公室"},' +
+    '{"kind":"speech","intent":"command","speaker":"主管","elements":{"action":"下午以前重新修改方案","deadline":"下午以前';
+  const plan = parseScriptureSkeletonPlan(truncated);
+
+  assert.ok(plan);
+  assert.equal(plan.textType, "记事");
+  assert.equal(plan.units.length, 1);
+  assert.deepEqual(plan.units[0], {
+    kind: "narration",
+    frame: "arrival",
+    actor: "小周",
+    target: "",
+    action: "",
+    object: "",
+    place: "办公室",
+    time: "",
+    matter: "",
+    result: "",
+  });
+  assert.equal(plan.reflection?.enabled, false);
+});
 
 test("structured elements are rendered through fixed high-retention skeletons", () => {
   const plan = parseScriptureSkeletonPlan(
@@ -484,13 +508,6 @@ test("an unfinished threat is not falsely closed as a completed event", () => {
   );
   assert.ok(plan);
   assert.equal(renderScriptureSkeletonPlan(plan), "甲对乙说：“我必夺取你的命。”");
-});
-
-test("emergency rendering still returns a complete result without another model pass", () => {
-  const output = renderEmergencyScripture("系统升级失败，请稍后重试");
-  assert.match(output, /^论到这事，所记的乃是这样：/);
-  assert.match(output, /系统升级失败/);
-  assert.match(output, /凡听见这话的/);
 });
 
 test("story planning favors a coherent scripture tale over line-by-line transcript fidelity", () => {

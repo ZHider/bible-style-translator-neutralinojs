@@ -295,6 +295,8 @@ export default function Home() {
     setLoadingIndex(0);
     setError("");
     setWarning("");
+    setResult("");
+    setVerses([]);
     setCopied(false);
     const nextVariation = regenerate ? variation + 1 : variation;
     if (regenerate) setVariation(nextVariation);
@@ -333,6 +335,9 @@ export default function Home() {
       setWarning(payload.warning || "");
       window.setTimeout(() => outputRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
     } catch (requestError) {
+      setResult("");
+      setVerses([]);
+      setWarning("");
       setError(
         requestError instanceof Error
           ? requestError.message

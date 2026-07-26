@@ -121,6 +121,81 @@ test("CUV structured calls request strict JSON and return generation metadata", 
   assert.deepEqual(upstreamBody?.thinking, { type: "disabled" });
 });
 
+test("malformed CUV structure output is rescued by direct generation", async (context) => {
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  const bodies: Array<Record<string, unknown>> = [];
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    bodies.push(body);
+    const content = bodies.length <= 2
+      ? '{"textType":"记事","units":[ Broken JSON'
+      : "那时，小周来到办公室，将方案交在主管面前。主管看后对他说：“你当重新修改，明日再交来。”小周就应允，回到座位修改。";
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content } }] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const response = await POST(
+    requestFor(
+      {
+        text: "小周来到办公室，把方案交给主管。主管看后要求他明日重做，小周答应以后回到座位修改。",
+        direction: "to_scripture",
+        mode: "original",
+        level: "light",
+        edition: "cuv",
+        plainMode: "direct",
+      },
+      "api-flow-direct-rescue",
+    ),
+  );
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.generationMode, "auto_repaired");
+  assert.match(payload.result, /小周来到办公室/);
+  assert.doesNotMatch(payload.result, /论到这事，所记的乃是这样/);
+  assert.equal(bodies.length, 3);
+  assert.deepEqual(bodies[0].response_format, { type: "json_object" });
+  assert.equal(bodies[2].response_format, undefined);
+});
+
+test("unrecoverable CUV failures return feedback instead of near-source fallback", async (context) => {
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: calls <= 2 ? "not json" : "小周。" } }] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const source =
+    "小周来到办公室，把方案交给主管。主管看后要求他明日重做，小周答应以后回到座位修改。";
+  const response = await POST(
+    requestFor(
+      {
+        text: source,
+        direction: "to_scripture",
+        mode: "original",
+        level: "light",
+        edition: "cuv",
+        plainMode: "direct",
+      },
+      "api-flow-no-near-source-fallback",
+    ),
+  );
+  const payload = await response.json();
+  assert.equal(response.status, 504);
+  assert.equal(payload.result, undefined);
+  assert.match(payload.error, /没有返回近似原文的保守稿/);
+  assert.equal(calls, 4);
+});
+
 test("KJV mode uses its own direct generation path", async (context) => {
   context.after(() => {
     globalThis.fetch = originalFetch;

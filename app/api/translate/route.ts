@@ -28,7 +28,6 @@ import {
   buildSkeletonIdentificationPrompt,
   groundScriptureSkeletonPlan,
   parseScriptureSkeletonPlan,
-  renderEmergencyScripture,
   renderScriptureSkeletonPlan,
 } from "@/lib/scriptureSkeletons";
 import { segmentScriptureText } from "@/lib/scriptureVerses";
@@ -89,8 +88,7 @@ type GenerationMode =
   | "local_primary"
   | "structured"
   | "auto_repaired"
-  | "best_effort"
-  | "fallback";
+  | "best_effort";
 
 function finalizeScriptureResult(
   source: string,
@@ -781,17 +779,104 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const fallback = renderEmergencyScripture(text);
+      let rescueResult = "";
+      let rescueIssues: string[] = [];
+      let rescueScore = Number.NEGATIVE_INFINITY;
+
+      for (
+        let attempt = 0;
+        attempt < 2 && Date.now() < deadlineAt - 2500;
+        attempt += 1
+      ) {
+        try {
+          const generated = await callCompatibleModel({
+            apiKey,
+            model: requestedModel || undefined,
+            deadlineAt,
+            systemPrompt: SCRIPTURE_SYSTEM_PROMPT,
+            userPrompt: `${buildScripturePrompt(text, mode, level)}\n\n${buildLengthInstruction(lengthTarget, level)}`,
+            maxTokens: Math.min(
+              maxTokens,
+              Math.max(1200, structureTokenBudget(text, sourceGenre, level) + 700),
+            ),
+            temperature: attempt === 0 ? 0.42 : 0.28,
+            callTimeoutMs: Math.max(
+              10000,
+              Math.min(24000, deadlineAt - Date.now() - 1000),
+            ),
+          });
+          const resultAssessment = assessScriptureStoryResult(text, generated);
+          const lengthAssessment = assessScriptureLength(
+            generated,
+            lengthTarget,
+            edition,
+          );
+          const allIssues = [
+            ...resultAssessment.issues,
+            ...(lengthAssessment.acceptable ? [] : [lengthAssessment.issue]),
+          ];
+          const { critical } = splitStoryIssues(allIssues, text, level);
+          const score =
+            resultAssessment.score -
+            critical.length * 2 -
+            Math.abs(lengthAssessment.actual - lengthTarget.ideal) / 1000;
+          const factuallySafe = critical.length === 0 && resultAssessment.score >= 0.58;
+          if (includeDiagnostics) {
+            generationDiagnostics.push({
+              attempt,
+              stage: "direct_rescue_assessed",
+              outputLength: [...generated].length,
+              critical,
+              issues: allIssues,
+            });
+          }
+          if (factuallySafe && score > rescueScore) {
+            rescueScore = score;
+            rescueResult = generated;
+            rescueIssues = allIssues;
+          }
+          if (factuallySafe && lengthAssessment.acceptable) {
+            return NextResponse.json({
+              ...scriptureResponse(
+                text,
+                generated,
+                edition,
+                "auto_repaired",
+              ),
+              ...(includeDiagnostics ? { diagnostics: generationDiagnostics } : {}),
+            });
+          }
+        } catch (error) {
+          if (shouldExposeUpstreamError(error)) throw error;
+          if (includeDiagnostics) {
+            generationDiagnostics.push({
+              attempt,
+              stage: "direct_rescue_failed",
+              name: error instanceof Error ? error.name : "unknown",
+              message: error instanceof Error ? error.message : "unknown",
+            });
+          }
+        }
+      }
+
+      if (rescueResult) {
+        return NextResponse.json({
+          ...scriptureResponse(
+            text,
+            rescueResult,
+            edition,
+            "best_effort",
+            `结构化生成未通过，已改用直接生成的最佳版本；${rescueIssues[0] || "个别指标未完全达到目标"}。`,
+          ),
+          ...(includeDiagnostics ? { diagnostics: generationDiagnostics } : {}),
+        });
+      }
+
       return NextResponse.json({
-        ...scriptureResponse(
-          text,
-          fallback,
-          edition,
-          "fallback",
-          "结构化生成未能在本次时间内通过事实校验，现已返回保守版本；你可以点击“再写一次”重试。",
-        ),
+        error:
+          "本次未能在时间预算内生成可靠的和合本改写；系统没有返回近似原文的保守稿。请点击“再写一次”，或缩短输入后重试。",
         ...(includeDiagnostics ? { diagnostics: generationDiagnostics } : {}),
-      });
+      }, { status: 504 });
     }
 
     if (edition !== "cuv") {
@@ -878,19 +963,11 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof DOMException && error.name === "TimeoutError") {
-      if ((payload.edition || "cuv") === "cuv") {
-        return NextResponse.json(
-          scriptureResponse(
-            text,
-            renderEmergencyScripture(text),
-            "cuv",
-            "fallback",
-            "模型请求超时，现已返回保守版本；它不是完整生成结果，建议点击“再写一次”。",
-          ),
-        );
-      }
       return NextResponse.json(
-        { error: "模型请求超时，系统没有用固定套话冒充结果，请稍后重试。" },
+        {
+          error:
+            "模型请求超时，系统没有返回近似原文的保守稿；请点击“再写一次”，或缩短输入后重试。",
+        },
         { status: 504 },
       );
     }

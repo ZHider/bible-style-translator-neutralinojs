@@ -169,6 +169,72 @@ function cleanElements(value: unknown) {
   );
 }
 
+function completeJsonObjectsFromUnitsArray(raw: string) {
+  const unitsMatch = /"units"\s*:\s*\[/u.exec(raw);
+  if (!unitsMatch) return [];
+  const arrayStart = unitsMatch.index + unitsMatch[0].length - 1;
+  const objects: string[] = [];
+  let depth = 0;
+  let objectStart = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = arrayStart + 1; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) objectStart = index;
+      depth += 1;
+      continue;
+    }
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && objectStart >= 0) {
+        objects.push(raw.slice(objectStart, index + 1));
+        objectStart = -1;
+      }
+      continue;
+    }
+    if (char === "]" && depth === 0) break;
+  }
+  return objects;
+}
+
+function recoverTruncatedSkeletonJson(raw: string) {
+  const units = completeJsonObjectsFromUnitsArray(raw)
+    .map((item) => {
+      try {
+        return JSON.parse(item) as unknown;
+      } catch {
+        return null;
+      }
+    })
+    .filter((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === "object" && !Array.isArray(item)),
+    )
+    .filter((item) => ["narration", "speech", "declaration"].includes(String(item.kind)));
+  if (!units.length) return null;
+  const textType = /"textType"\s*:\s*"((?:\\.|[^"\\]){0,80})"/u.exec(raw)?.[1];
+  return {
+    textType: textType || "记事",
+    units,
+    reflection: { enabled: false },
+  };
+}
+
 export function parseScriptureSkeletonPlan(raw: string) {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
@@ -178,7 +244,8 @@ export function parseScriptureSkeletonPlan(raw: string) {
   try {
     parsed = JSON.parse(raw.slice(start, end + 1));
   } catch {
-    return null;
+    parsed = recoverTruncatedSkeletonJson(raw.slice(start));
+    if (!parsed) return null;
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
 
@@ -2003,27 +2070,4 @@ ${retryRule}
 <输入>
 ${source}
 </输入>`;
-}
-
-export function renderEmergencyScripture(source: string) {
-  const preserved = source
-    .trim()
-    .replace(/[\r\n]+/gu, "")
-    .replace(/。{2,}/gu, "。")
-    .slice(0, 3000);
-  if (classifyScriptureSource(source) === "story") {
-    let story = preserved
-      .replace(/^傍晚，/u, "那时正是傍晚，")
-      .replace(/^清晨，/u, "那时正是清晨，")
-      .replace(/^一天，/u, "那时，")
-      .replace(/第二天，/gu, "到了第二天，")
-      .replace(/回家时/gu, "及至回家的时候")
-      .replace(/下班回家/gu, "作完当日的工，回家去");
-    if (!/[。！？]$/u.test(story)) story += "。";
-    return /这事的结局，就是这样。$/u.test(story)
-      ? story
-      : `${story}\n\n${renderNeutralStoryClosure()}`;
-  }
-  const cleaned = cleanSlot(source, 3000);
-  return `论到这事，所记的乃是这样：${cleaned}。凡听见这话的，都当察看其中的缘故。`;
 }

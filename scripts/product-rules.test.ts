@@ -29,7 +29,8 @@ test("route uses bounded element recognition and deterministic skeleton renderin
   assert.match(route, /buildSkeletonIdentificationPrompt/);
   assert.match(route, /parseScriptureSkeletonPlan/);
   assert.match(route, /renderScriptureSkeletonPlan/);
-  assert.match(route, /renderEmergencyScripture/);
+  assert.match(route, /direct_rescue_assessed/);
+  assert.match(route, /没有返回近似原文的保守稿/);
   assert.match(route, /attempt < 2/);
   assert.match(route, /response_format/);
   assert.match(route, /groundScriptureSkeletonPlan\(parsedPlan, text\)[\s\S]*assessScriptureStoryPlan\(groundedPlan, text\)/);
