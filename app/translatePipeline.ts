@@ -57,6 +57,30 @@ import {
   type DeepSeekCallOptions,
 } from "@/app/aiProxy";
 
+// ── Debug 日志 ─────────────────────────────────────────────
+// 设为 true 时打印每次 AI 调用和检查结果到控制台
+const DEBUG = true;
+
+function logDebug(...args: unknown[]) {
+  if (!DEBUG) return;
+  // 使用 ANSI 颜色区分阶段
+  const prefix = "%c[translatePipeline]";
+  const style = "color:#8e44ad;font-weight:bold";
+  console.log(prefix, style, ...args);
+}
+
+function logDebugStage(stage: string, ...args: unknown[]) {
+  if (!DEBUG) return;
+  const colors: Record<string, string> = {
+    input: "#2980b9",
+    output: "#27ae60",
+    assessment: "#e67e22",
+    decision: "#c0392b",
+  };
+  const color = colors[stage] || "#7f8c8d";
+  console.log(`%c[${stage}]`, `color:${color};font-weight:bold`, ...args);
+}
+
 // ── 类型定义 ───────────────────────────────────────────────
 
 type GenerationMode =
@@ -198,6 +222,8 @@ export async function translatePipeline(
   const maxTokens = 4096;
   const budgetMs = 45000;
   const deadlineAt = Date.now() + budgetMs;
+  logDebugStage("input", `方向=${options.direction}, 版本=${options.edition}, 模式=${options.mode}, 强度=${options.level}, 变化=${options.variation}`);
+  logDebugStage("input", "原文:", text);
 
   // 构建 call 参数
   const buildCallOptions = (
@@ -216,6 +242,7 @@ export async function translatePipeline(
   try {
     // 2. 白话方向：单次调用
     if (isPlainDirection) {
+      logDebugStage("output", "── to_plain 方向：单次调用 ──");
       const result = await callCompatibleModel(buildCallOptions({
         maxTokens: 900,
         temperature: 0.25,
@@ -253,23 +280,33 @@ export async function translatePipeline(
 
       for (let attempt = 0; attempt < 2 && Date.now() < deadlineAt - 4500; attempt += 1) {
         try {
-          const rawPlan = await callCompatibleModel(buildCallOptions({
-            maxTokens: Math.min(
-              maxTokens,
-              structureTokenBudget(text, sourceGenre, options.level),
-            ),
+          logDebugStage("output", `── Phase 1 骨架识别 第${attempt + 1}/${2}次调用 ──`);
+          const systemPrompt1 = "你是和合本风格改写器的结构编辑。先保持输入原有文本类型：定义仍是定义，事实仍是事实，通知仍是通知，格言仍是格言，祝愿仍是祝愿，故事才整理成故事。只输出严格 JSON，不得选择经文，不得写正文。人物故事只在顶层 reflection 中提取一组由原文支持的人物、具体行为、实际结果、逻辑关系、褒贬方向和逐字证据；不得在 units 中写故事格言，不得凭空添加祝福、咒诅、因果或评价。";
+          const userPrompt1 = `${buildSkeletonIdentificationPrompt(text, previousIssues, options.level)}\n本次变化编号：${options.variation}。编号大于零时，可在语义兼容的骨架之间换一种表达。`;
+          logDebugStage("input", "系统提示词:", systemPrompt1);
+          logDebugStage("input", "用户提示词:", userPrompt1);
+          logDebugStage("input", `参数: temp=0.05, jsonObject=true, maxTokens=${structureTokenBudget(text, sourceGenre, options.level)}`);
+          const maxTokens1 = Math.min(maxTokens, structureTokenBudget(text, sourceGenre, options.level));
+          const rawPlan = await callCompatibleModel({
+            apiKey: options.apiKey,
+            model: options.apiModel || undefined,
+            deadlineAt,
+            maxTokens: maxTokens1,
             temperature: 0.05,
             jsonObject: true,
             callTimeoutMs: planningCallTimeout([...text].length),
-            systemPrompt:
-              "你是和合本风格改写器的结构编辑。先保持输入原有文本类型：定义仍是定义，事实仍是事实，通知仍是通知，格言仍是格言，祝愿仍是祝愿，故事才整理成故事。只输出严格 JSON，不得选择经文，不得写正文。人物故事只在顶层 reflection 中提取一组由原文支持的人物、具体行为、实际结果、逻辑关系、褒贬方向和逐字证据；不得在 units 中写故事格言，不得凭空添加祝福、咒诅、因果或评价。",
-            userPrompt: `${buildSkeletonIdentificationPrompt(text, previousIssues, options.level)}\n本次变化编号：${options.variation}。编号大于零时，可在语义兼容的骨架之间换一种表达。`,
-          }));
+            systemPrompt: systemPrompt1,
+            userPrompt: userPrompt1,
+          });
+          logDebugStage("output", "AI 返回(原始):", rawPlan);
+          try { logDebugStage("output", "AI 返回(JSON):", JSON.parse(rawPlan)); } catch { /* 不是 JSON */ }
           const parsedPlan = parseScriptureSkeletonPlan(rawPlan);
           if (!parsedPlan) {
+            logDebugStage("assessment", "JSON 解析失败，设 previousIssues 重试");
             previousIssues = ["返回内容不是可解析的完整结构 JSON"];
             continue;
           }
+          logDebugStage("assessment", "JSON 解析成功");
           const groundedPlan = groundScriptureSkeletonPlan(parsedPlan, text);
           const planIssues = assessScriptureStoryPlan(groundedPlan, text);
           const candidateResult = renderScriptureSkeletonPlan(groundedPlan, text);
@@ -283,20 +320,27 @@ export async function translatePipeline(
           const { critical, advisory } = splitStoryIssues(allIssues, text, options.level);
           const assessment = {
             acceptable: critical.length === 0 && lengthAssessment.acceptable,
-            score: Math.max(
-              0,
-              resultAssessment.score - critical.length * 0.24 - advisory.length * 0.025,
-            ),
+            score: Math.max(0, resultAssessment.score - critical.length * 0.24 - advisory.length * 0.025),
             issues: allIssues,
             critical,
           };
-
+          logDebugStage("assessment", `acceptable=${assessment.acceptable}, score=${assessment.score.toFixed(3)}, critical=${critical.length}, advisory=${advisory.length}`);
+          if (critical.length > 0) {
+            logDebugStage("assessment", "关键问题:", critical);
+          }
+          if (advisory.length > 0) {
+            logDebugStage("assessment", "建议问题:", advisory);
+          }
+          if (assessment.score > bestScore) {
+            logDebugStage("decision", `保存最佳方案: score=${assessment.score.toFixed(3)} (之前best=${bestScore})`);
+          }
           if (assessment.critical.length === 0 && assessment.score > bestScore) {
             bestScore = assessment.score;
             bestPlan = groundedPlan;
             bestIssues = assessment.issues;
           }
           if (assessment.acceptable) {
+            logDebugStage("decision", "✅ 方案可接受，跳出重试循环");
             plan = groundedPlan;
             bestIssues = assessment.issues;
             break;
@@ -305,11 +349,14 @@ export async function translatePipeline(
             ? assessment.critical
             : assessment.issues.filter((issue) => /篇幅/u.test(issue));
           if (!previousIssues.length) {
+            logDebugStage("decision", "无反馈问题，接受当前方案");
             plan = groundedPlan;
             break;
           }
+          logDebugStage("decision", "需要重试，反馈问题:", previousIssues.slice(0, 3));
         } catch (error) {
           if (shouldExposeUpstreamError(error)) throw error;
+          logDebugStage("decision", "调用异常，设 previousIssues 重试:", error);
           previousIssues = ["上一次结构生成中断，必须重新输出完整 JSON"];
         }
       }
@@ -330,23 +377,34 @@ export async function translatePipeline(
         );
       }
 
-      // 降级：直接生成
+
+      logDebugStage("decision", `── Phase 1 结束 ── plan=${plan ? "有方案" : "null"}, bestPlan=${bestPlan ? "有" : "null"}, bestScore=${bestScore.toFixed(3)}`);
+
+      logDebugStage("decision", "── Phase 2 降级直接生成 ──");
       let rescueResult = "";
       let rescueIssues: string[] = [];
       let rescueScore = Number.NEGATIVE_INFINITY;
 
       for (let attempt = 0; attempt < 2 && Date.now() < deadlineAt - 2500; attempt += 1) {
         try {
-          const generated = await callCompatibleModel(buildCallOptions({
-            maxTokens: Math.min(
-              maxTokens,
-              Math.max(1200, structureTokenBudget(text, sourceGenre, options.level) + 700),
-            ),
+          logDebugStage("output", `── Phase 2 直接生成 第${attempt + 1}/${2}次调用 ──`);
+          const systemPrompt2 = SCRIPTURE_SYSTEM_PROMPT;
+          const userPrompt2 = `${buildScripturePrompt(text, options.mode, options.level)}\n\n${buildLengthInstruction(lengthTarget, options.level)}`;
+          logDebugStage("input", "系统提示词:", systemPrompt2);
+          logDebugStage("input", "用户提示词:", userPrompt2);
+          logDebugStage("input", `参数: temp=${attempt === 0 ? 0.42 : 0.28}, maxTokens=${Math.min(maxTokens, Math.max(1200, structureTokenBudget(text, sourceGenre, options.level) + 700))}`);
+          const generated = await callCompatibleModel({
+            apiKey: options.apiKey,
+            model: options.apiModel || undefined,
+            deadlineAt,
+            maxTokens: Math.min(maxTokens, Math.max(1200, structureTokenBudget(text, sourceGenre, options.level) + 700)),
             temperature: attempt === 0 ? 0.42 : 0.28,
             callTimeoutMs: Math.max(10000, Math.min(24000, deadlineAt - Date.now() - 1000)),
-            systemPrompt: SCRIPTURE_SYSTEM_PROMPT,
-            userPrompt: `${buildScripturePrompt(text, options.mode, options.level)}\n\n${buildLengthInstruction(lengthTarget, options.level)}`,
-          }));
+            systemPrompt: systemPrompt2,
+            userPrompt: userPrompt2,
+          });
+          logDebugStage("output", "AI 返回:", generated);
+          try { logDebugStage("output", "AI 返回(JSON):", JSON.parse(generated)); } catch { /* 不是 JSON */ }
           const resultAssessment = assessScriptureStoryResult(text, generated);
           const lengthAssessment = assessScriptureLength(generated, lengthTarget, options.edition);
           const allIssues = [
@@ -360,20 +418,33 @@ export async function translatePipeline(
             Math.abs(lengthAssessment.actual - lengthTarget.ideal) / 1000;
           const factuallySafe = critical.length === 0 && resultAssessment.score >= 0.58;
 
+          logDebugStage("assessment", `factuallySafe=${factuallySafe}, score=${score.toFixed(3)}, resultScore=${resultAssessment.score.toFixed(3)}, critical=${critical.length}, actualLength=${lengthAssessment.actual}, idealLength=${lengthTarget.ideal}`);
+          if (critical.length > 0) {
+            logDebugStage("assessment", "关键问题:", critical);
+          }
+          if (allIssues.length > 0) {
+            logDebugStage("assessment", "所有问题:", allIssues);
+          }
+
           if (factuallySafe && score > rescueScore) {
             rescueScore = score;
             rescueResult = generated;
             rescueIssues = allIssues;
+            logDebugStage("decision", `保存 best_effort: score=${score.toFixed(3)}`);
           }
           if (factuallySafe && lengthAssessment.acceptable) {
+            logDebugStage("decision", "✅ 直接生成结果可接受，返回 auto_repaired");
             return buildScriptureResponse(text, generated, options.edition, "auto_repaired");
           }
+          logDebugStage("decision", factuallySafe ? "结果事实安全但篇幅不达标，继续尝试" : "结果事实不安全，继续尝试");
         } catch (error) {
           if (shouldExposeUpstreamError(error)) throw error;
+          logDebugStage("decision", "调用异常:", error);
         }
       }
 
       if (rescueResult) {
+        logDebugStage("decision", `采用 best_effort 方案, score=${rescueScore.toFixed(3)}`);
         return buildScriptureResponse(
           text,
           rescueResult,
@@ -383,11 +454,13 @@ export async function translatePipeline(
         );
       }
 
+      logDebugStage("decision", "❌ 全部 4 次调用均未通过检查，返回错误");
       return {
         error: `本次未能在时间预算内生成可靠的和合本改写；系统没有返回近似原文的保守稿。请点击\u201C再写一次\u201D，或缩短输入后重试。`,
         result: "",
         verses: [],
       };
+
     }
 
     // 3d. 非 CUV 版本（思高/KJV）
@@ -399,23 +472,25 @@ export async function translatePipeline(
       for (let attempt = 0; attempt < 2 && Date.now() < deadlineAt - 3500; attempt += 1) {
         let generated = "";
         try {
-          generated = await callCompatibleModel(buildCallOptions({
-            maxTokens: Math.min(
-              maxTokens,
-              Math.max(700, structureTokenBudget(text, sourceGenre, options.level)),
-            ),
+          logDebugStage("output", `── ${options.edition} 版本 第${attempt + 1}/${2}次调用 ──`);
+          const systemPrompt3 = options.edition === "kjv" ? KJV_SYSTEM_PROMPT : SIGAO_SYSTEM_PROMPT;
+          const userPrompt3 = buildEditionPrompt(text, options.edition, buildLengthInstruction(lengthTarget, options.level), options.variation, retryIssues);
+          logDebugStage("input", "系统提示词:", systemPrompt3);
+          logDebugStage("input", "用户提示词:", userPrompt3);
+          generated = await callCompatibleModel({
+            apiKey: options.apiKey,
+            model: options.apiModel || undefined,
+            deadlineAt,
+            maxTokens: Math.min(maxTokens, Math.max(700, structureTokenBudget(text, sourceGenre, options.level))),
             temperature: attempt === 0 ? 0.42 : 0.25,
-            systemPrompt: options.edition === "kjv" ? KJV_SYSTEM_PROMPT : SIGAO_SYSTEM_PROMPT,
-            userPrompt: buildEditionPrompt(
-              text,
-              options.edition,
-              buildLengthInstruction(lengthTarget, options.level),
-              options.variation,
-              retryIssues,
-            ),
-          }));
+            systemPrompt: systemPrompt3,
+            userPrompt: userPrompt3,
+          });
+          logDebugStage("output", "AI 返回:", generated);
+          try { logDebugStage("output", "AI 返回(JSON):", JSON.parse(generated)); } catch { /* 不是 JSON */ }
         } catch (error) {
           if (shouldExposeUpstreamError(error) || attempt > 0) throw error;
+          logDebugStage("decision", "调用异常，设 retryIssues 重试:", error);
           retryIssues = ["The previous generation was interrupted; return one complete rewritten text."];
           continue;
         }
@@ -427,31 +502,25 @@ export async function translatePipeline(
               )
             : [];
         const distance = Math.abs(lengthAssessment.actual - lengthTarget.ideal) + storyIssues.length * 1000;
+        logDebugStage("assessment", `lengthAcceptable=${lengthAssessment.acceptable}, storyIssues=${storyIssues.length}, distance=${distance.toFixed(0)}`);
+        if (storyIssues.length > 0) {
+          logDebugStage("assessment", "关键故事问题:", storyIssues);
+        }
         if (distance < bestDistance) {
           bestDistance = distance;
           bestResult = generated;
+          logDebugStage("decision", `更新最佳距离: ${bestDistance.toFixed(0)}`);
         }
         if (lengthAssessment.acceptable && storyIssues.length === 0) {
-          return buildScriptureResponse(
-            text,
-            generated,
-            options.edition,
-            attempt ? "auto_repaired" : "structured",
-          );
+          logDebugStage("decision", `✅ ${options.edition} 版本结果可接受`);
+          return buildScriptureResponse(text, generated, options.edition, attempt ? "auto_repaired" : "structured");
         }
-        retryIssues = [
-          ...(lengthAssessment.acceptable ? [] : [lengthAssessment.issue]),
-          ...storyIssues,
-        ];
+        retryIssues = [...(lengthAssessment.acceptable ? [] : [lengthAssessment.issue]), ...storyIssues];
+        logDebugStage("decision", "需要重试，问题:", retryIssues.slice(0, 3));
       }
       if (bestResult) {
-        return buildScriptureResponse(
-          text,
-          bestResult,
-          options.edition,
-          "best_effort",
-          "正文已经生成，但篇幅或事实校验仍有轻微偏差；系统展示了本次最佳版本。",
-        );
+        logDebugStage("decision", `采用 best_effort 方案, distance=${bestDistance.toFixed(0)}`);
+        return buildScriptureResponse(text, bestResult, options.edition, "best_effort", "正文已经生成，但篇幅或事实校验仍有轻微偏差；系统展示了本次最佳版本。");
       }
     }
 
@@ -466,6 +535,7 @@ export async function translatePipeline(
 
   } catch (error) {
     if (error instanceof DOMException && error.name === "TimeoutError") {
+      logDebugStage("decision", "❌ 总超时");
       return {
         error: `模型请求超时，系统没有返回近似原文的保守稿；请点击\u201C再写一次\u201D，或缩短输入后重试。`,
         result: "",
@@ -473,6 +543,7 @@ export async function translatePipeline(
       };
     }
     const message = error instanceof Error ? error.message : "转换失败，请稍后重试。";
+    logDebugStage("decision", "❌ 未捕获异常:", error);
     return { error: message, result: "", verses: [] };
   }
 }

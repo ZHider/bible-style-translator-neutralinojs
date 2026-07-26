@@ -1,6 +1,6 @@
 {
-  "applicationId": "com.lizi605.biblestyletranslator",
-  "version": "1.1.1",
+  "applicationName": "圣经体翻译器",
+  "applicationIcon": "build/icon.png",
   "defaultMode": "window",
   "port": 0,
   "url": "/",
@@ -13,7 +13,8 @@
   },
   "nativeAllowList": [
     "app.*",
-    "net.*"
+    "net.*",
+    "storage.*"
   ],
   "modes": {
     "window": {
@@ -22,7 +23,7 @@
       "height": 960,
       "minWidth": 980,
       "minHeight": 700,
-      "icon": "/resources/images/icon.png",
+      "icon": "/resources/icon.png",
       "enableInspector": false,
       "borderless": false,
       "maximize": false,

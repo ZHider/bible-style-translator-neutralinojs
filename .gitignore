@@ -32,3 +32,5 @@ resources/
 .tmp/
 neutralinojs.log
 bin
+dist
+.storage
