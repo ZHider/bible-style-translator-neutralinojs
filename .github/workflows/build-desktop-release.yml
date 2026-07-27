@@ -29,38 +29,37 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Cache Neutralinojs framework binaries
+        id: cache-neu
+        uses: actions/cache@v4
+        with:
+          path: ~/.neu/cache
+          key: ${{ runner.os }}-neu-${{ hashFiles('neutralino.config.json') }}
       - name: Build SPA and prepare Neutralinojs resources
         run: pnpm desktop:build
+      - name: Download Neutralinojs framework binaries
+        run: pnpx @neutralinojs/neu update
 
       - name: Build Neutralinojs binaries for all platforms
         run: pnpx @neutralinojs/neu build
-
-      - name: List binaries
-        run: ls -la dist/bible-style-translator/
-
       - name: Package per-platform zips
         run: |
           mkdir -p /tmp/zips
-          binary_dir="dist/bible-style-translator"
-          for binary in "$binary_dir"/bible-style-translator-*; do
+          cd dist/bible-style-translator
+          for binary in bible-style-translator-*; do
             case "$binary" in
-              *.zip) continue ;;
-              */resources.neu) continue ;;
+              *.zip|resources.neu) continue ;;
             esac
-            basename="${binary##*/}"
-            platform="${basename#bible-style-translator-}"
+            platform="${binary#bible-style-translator-}"
             dir="/tmp/zips/${platform}"
             mkdir -p "$dir"
             cp "$binary" "$dir/"
-            cp "$binary_dir/resources.neu" "$dir/"
+            cp resources.neu "$dir/"
             (cd "$dir" && zip -9 -r "/tmp/zips/bible-style-translator-${platform}.zip" .)
           done
-          ls -la /tmp/zips/
-
       - name: Upload assets to release
         uses: softprops/action-gh-release@v2
         with:
