@@ -383,8 +383,8 @@ test("story endings add one distinct recognizable CUV reflection matched to veri
   }));
   assert.ok(walletPlan);
   const wallet = renderScriptureSkeletonPlan(walletPlan, walletSource);
-  assert.match(wallet, /\n\n李婷.*美名.*胜过大财/u);
-  assert.match(wallet, /恩宠.*强如金银/u);
+  assert.match(wallet, /\n\n美名胜过大财；恩宠强如金银。$/u);
+  assert.doesNotMatch(wallet, /正如经上所记|这话.*显明|李婷因/u);
   assert.doesNotMatch(wallet, /所以，凡听见这事的，都当思想/u);
 
   const workSource =
@@ -408,8 +408,8 @@ test("story endings add one distinct recognizable CUV reflection matched to veri
   }));
   assert.ok(workPlan);
   const work = renderScriptureSkeletonPlan(workPlan, workSource);
-  assert.match(work, /流泪撒种/u);
-  assert.match(work, /欢呼收割/u);
+  assert.match(work, /\n\n流泪撒种的，必欢呼收割。$/u);
+  assert.doesNotMatch(work, /正如经上所记|小周.*果效|这话.*应验/u);
   assert.doesNotMatch(work, /美名胜过大财/u);
 
   const neighborPlan = parseScriptureSkeletonPlan(JSON.stringify({
@@ -430,6 +430,6 @@ test("story endings add one distinct recognizable CUV reflection matched to veri
   }));
   assert.ok(neighborPlan);
   const neighbor = renderScriptureSkeletonPlan(neighborPlan, NEIGHBOR_STORY);
-  assert.match(neighbor, /各人不要单顾自己的事，也要顾别人的事/u);
-  assert.match(neighbor, /这话便显明在他身上/u);
+  assert.match(neighbor, /\n\n各人不要单顾自己的事，也要顾别人的事。$/u);
+  assert.doesNotMatch(neighbor, /正如经上所记|这话.*显明/u);
 });

@@ -170,7 +170,7 @@ const STORY_REFLECTION_SKELETONS: readonly ReflectionSkeleton[] = [
   },
   {
     id: "fruit-recognition",
-    sourceShape: "凭着他们的果子，就可以认出他们来。",
+    sourceShape: "所以，凭着他们的果子，就可以认出他们来。",
     relations: ["character_fruit"],
     modes: ["commend", "warn"],
     polarities: ["positive", "negative", "mixed"],
@@ -180,7 +180,7 @@ const STORY_REFLECTION_SKELETONS: readonly ReflectionSkeleton[] = [
   },
   {
     id: "exalt-humble",
-    sourceShape: "凡自高的，必降为卑；自卑的，必升为高。",
+    sourceShape: "因为凡自高的，必降为卑；自卑的，必升为高。",
     relations: ["self_exaltation"],
     modes: ["warn", "lament"],
     polarities: ["negative", "mixed"],
@@ -191,7 +191,7 @@ const STORY_REFLECTION_SKELETONS: readonly ReflectionSkeleton[] = [
   },
   {
     id: "anger-righteousness",
-    sourceShape: "人的怒气，并不成就神的义。",
+    sourceShape: "因为人的怒气，并不成就神的义。",
     relations: ["anger_warning"],
     modes: ["warn", "lament"],
     polarities: ["negative", "mixed"],
@@ -243,7 +243,7 @@ const STORY_REFLECTION_SKELETONS: readonly ReflectionSkeleton[] = [
   },
   {
     id: "parallel-as",
-    sourceShape: "愿你的旨意行在地上，如同行在天上。",
+    sourceShape: "愿你的国降临；愿你的旨意行在地上，如同行在天上。",
     relations: ["parallel"],
     modes: ["commend", "admonish"],
     polarities: ["positive", "neutral"],
@@ -253,11 +253,11 @@ const STORY_REFLECTION_SKELETONS: readonly ReflectionSkeleton[] = [
   },
   {
     id: "neutral-record",
-    sourceShape: "这事以后，事情的结局就显明了。",
+    sourceShape: "凡事都有定期，天下万务都有定时。",
     relations: ["neutral_record"],
     modes: ["neutral"],
     polarities: ["neutral", "mixed"],
-    famousness: 40,
+    famousness: 90,
     render: (reflection) =>
       `${actorOf(reflection)}既${actionClause(behaviorOf(reflection))}，后来便${outcomeClause(outcomeOf(reflection))}；这事的结局，就是这样。`,
   },
@@ -294,12 +294,10 @@ export function selectStoryReflectionSkeleton(reflection: ScriptureReflection) {
 
 export function renderStoryReflection(reflection: ScriptureReflection) {
   if (!reflection.enabled) return "";
-  return selectStoryReflectionSkeleton(reflection).render(reflection)
-    .replace(/因因/gu, "因")
-    .replace(/既既/gu, "既")
-    .replace(/便便/gu, "便")
-    .replace(/。。+/gu, "。")
-    .trim();
+  const skeleton = selectStoryReflectionSkeleton(reflection);
+  return skeleton.id === "neutral-record"
+    ? renderNeutralStoryClosure()
+    : skeleton.sourceShape;
 }
 
 export function renderNeutralStoryClosure() {

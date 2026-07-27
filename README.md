@@ -124,7 +124,7 @@ npm run desktop:dist
 生成文件位于：
 
 ```text
-.artifacts/desktop-dist/圣经体翻译器 1.1.1.exe
+.artifacts/desktop-dist/圣经体翻译器 1.1.2.exe
 ```
 
 桌面版同样采用 BYOK。用户首次打开后点击“配置 API”，填写与当前 OpenAI 兼容接口匹配的 API Key；需要时可以另填模型名。Key 只保存在本机应用的数据目录中，不会被打包进安装文件或上传到项目仓库。
