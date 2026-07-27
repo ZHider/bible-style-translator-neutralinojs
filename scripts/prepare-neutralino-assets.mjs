@@ -1,9 +1,8 @@
 /**
  * 构建后准备 Neutralinojs 资源目录。
  */
-import { createWriteStream } from "node:fs";
 import { cp, mkdir, readFile, writeFile, readdir, stat } from "node:fs/promises";
-import { get } from "node:https";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const NEUTRALINOJS_VERSION = "v6.9.0";
@@ -29,18 +28,14 @@ async function downloadNeutralinoJs(targetPath) {
     await stat(targetPath);
     return; // already exists
   } catch { /* download */ }
-  console.log(`Downloading neutralino.js v${NEUTRALINOJS_VERSION}...`);
-  await new Promise((resolve, reject) => {
-    get(NEUTRALINOJS_CLIENT_URL, (response) => {
-      if (response.statusCode !== 200) {
-        reject(new Error(`Download failed: ${response.statusCode}`));
-        return;
-      }
-      const file = createWriteStream(targetPath);
-      response.pipe(file);
-      file.on("finish", () => { file.close(); resolve(); });
-    }).on("error", reject);
-  });
+  console.log(`Downloading neutralino.js ${NEUTRALINOJS_VERSION}...`);
+  const response = await fetch(NEUTRALINOJS_CLIENT_URL);
+  if (!response.ok) {
+    throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  writeFileSync(targetPath, buffer);
+  console.log("neutralino.js downloaded");
 }
 
 async function prepare() {
@@ -70,8 +65,16 @@ async function prepare() {
     }
   } catch { /* public/ may not exist */ }
 
-  // 3. 下载 neutralino.js（Neutralinojs 客户端库）
+  // 3. 下载 neutralino.js 客户端库
   await downloadNeutralinoJs(resolve(resourcesDir, "neutralino.js"));
+
+  // 5. 复制应用图标
+  const iconSource = resolve("build/icon.png");
+  const iconTarget = resolve(resourcesDir, "icon.png");
+  try {
+    await stat(iconSource);
+    await cp(iconSource, iconTarget, { force: true });
+  } catch { /* icon.png not in build directory */ }
 
   // 4. 注入 viewport meta
   const indexPath = resolve(resourcesDir, "index.html");

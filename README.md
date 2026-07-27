@@ -81,47 +81,61 @@
 - 把圣经翻译腔反向释义成自然现代中文。
 - 简章、成篇、长卷三档篇幅。
 - 结果复制与图片卡片导出。
-- BYOK：API Key 只保存在用户浏览器中。
+- BYOK：API Key 只保存在用户本地存储中。
 - 附带可下载的 `speak-scripture` Codex Skill。
 
 ## 本地运行
 
-要求 Node.js 20 或更高版本。首次安装建议使用锁文件中的确定版本：
+要求 Node.js 20 或更高版本。
 
 ```bash
-npm ci
-npm run dev
+pnpm install
+pnpm dev
 ```
 
-打开 <http://127.0.0.1:3000>，点击右上角“配置 API”，填入自己的 DeepSeek API Key。
+打开 <http://127.0.0.1:3000>，点击右上角"配置 API"，填入自己的 DeepSeek API Key。
 
 需要按生产环境检查交互时，运行：
 
 ```bash
-npm run build
-npm run start
+pnpm build
+pnpm start
 ```
 
-Key 保存在当前浏览器的 `localStorage` 中：
+Key 保存在 `localStorage`（Web 版）或 `Neutralino.storage`（桌面版）中：
 
 ```text
 bible-style-deepseek-api-key
 ```
 
-浏览器只在调用 `/api/translate` 时通过 `Authorization: Bearer <用户Key>` 临时发送它。服务端不读取公共 `DEEPSEEK_API_KEY`，也不持久化用户 Key。
+浏览器只在调用 `/api/translate`（Web 版）时通过 `Authorization: Bearer <用户Key>` 临时发送它。桌面版直接通过 `Neutralino.net.post()` 发送到 DeepSeek API。服务端不读取公共 `DEEPSEEK_API_KEY`，也不持久化用户 Key。
 
-## Windows 桌面版
+## 桌面版（Neutralinojs）
 
-桌面版会在应用内部启动打包好的本地服务，并打开 `http://127.0.0.1:32145`。页面、样式、图片和翻译接口均随程序提供，不需要访问公开的 `workers.dev` 网站；联网只用于调用 DeepSeek API。
+桌面版使用 Neutralinojs 替代 Electron，将 SPA 打包为原生窗口应用（使用系统原生 WebView2 / WebKit，不捆绑 Chromium）。页面、样式、图片均为本地提供；联网只用于调用 DeepSeek API。
 
-构建 64 位 Windows 便携版：
+### 架构
 
-```bash
-npm ci
-npm run desktop:dist
+```
+WebView
+  └── resources/index.html（Next.js 静态导出 SPA）
+       ├── UI: React
+       ├── 业务逻辑: lib/*.ts（纯 TS，前端 bundle）
+       └── AI 调用: Neutralino.net.post() → DeepSeek
+            （C++ 框架层 HTTP，无 CORS 限制）
 ```
 
-生成文件位于：
+无本地服务器、无 Node.js 运行时。
+
+### 运行
+
+```bash
+pnpm desktop:build   # 构建静态 SPA + 准备 Neutralinojs 资源
+pnpm desktop:run     # 构建并启动桌面应用
+pnpm desktop:dist    # 构建并打包为分发包
+```
+
+### BYOK
 
 ```text
 .artifacts/desktop-dist/圣经体翻译器 1.1.2.exe
@@ -148,17 +162,19 @@ TRANSLATE_TIME_BUDGET_MS=45000
 DEEPSEEK_CALL_TIMEOUT_MS=22000
 ```
 
+Web 部署时在服务端设置；桌面版固定使用 DeepSeek 官方 API，环境变量由用户在前端界面中直接配置。
+
 ## 请求流程
 
-1. 浏览器读取用户自己的 Key。
+1. 浏览器（Web 版）或本地存储（桌面版）读取用户自己的 Key。
 2. 浏览器提交正文、翻译方向、文风档位、篇幅和匿名客户端 ID。
-3. 服务端验证输入、模式和频率限制。
+3. Web 版由服务端验证输入和频率限制；桌面版由前端管线验证输入。
 4. 模型只识别事实元素、叙事顺序和对白功能，返回严格 JSON，不生成正文，也不选择经文句子。
-5. 服务器按对白功能选择固定名句骨架，把人物、动作、对象、条件和结果机械填槽。
-6. 服务器用固定叙事框架连接各单元，并执行确定性的场景词替换后立即返回。
+5. 系统按对白功能选择固定名句骨架，把人物、动作、对象、条件和结果机械填槽。
+6. 系统用固定叙事框架连接各单元，并执行确定性的场景词替换后立即返回。
 7. JSON 无效或关键事实未通过时最多重试识别一次；长故事会保留事实安全的最佳版本，只有借贷方向、伤害对象、否定关系和结局等硬错误仍未修正时才进入紧急版本。
 
-模型请求层兼容主流 OpenAI 格式接口：模型名不支持时优先读取接口返回的可用模型，JSON mode、system role、`max_tokens`、`temperature` 与推理开关不兼容时会自动调整并缓存成功能力。DeepSeek 与 Qwen 兼容接口会优先关闭不必要的长推理，以减少长故事超时。认证、模型配置和参数兼容错误会直接反馈给用户，不会被包装成固定兜底结果。原生 Anthropic 等非 OpenAI 请求格式需要先经过兼容网关。
+模型请求层兼容主流 OpenAI 格式接口：模型名不支持时优先读取接口返回的可用模型，JSON mode、system role、`max_tokens`、`temperature` 与推理开关不兼容时会自动调整并缓存成功能力。DeepSeek 与 Qwen 兼容接口会优先关闭不必要的长推理，以减少长故事超时。认证、模型配置和参数兼容错误会直接反馈给用户，不会被包装成固定兜底结果。
 
 正向与反向输入上限均为 3000 字。
 
@@ -179,19 +195,19 @@ DEEPSEEK_CALL_TIMEOUT_MS=22000
 ## 质量检查
 
 ```bash
-npm run public:audit
-npm test
-npm run typecheck
-npm run build
+pnpm public:audit
+pnpm test
+pnpm run typecheck
+pnpm build
 ```
 
 ## 部署与安全
 
-- Cloudflare Workers 可运行 `npm run deploy`。
+- Cloudflare Workers 可运行 `pnpm deploy`。
 - Vercel 可直接导入仓库。
 - 公开部署应保持 HTTPS 与 BYOK，不加入共享 DeepSeek Key。
 - 不提交 `.env.local`、`.dev.vars` 或平台 Token。
-- 发布前运行 `npm run public:audit`。
+- 发布前运行 `pnpm public:audit`。
 - 参阅 [OPEN_SOURCE.md](./OPEN_SOURCE.md)。
 
 ## 致谢

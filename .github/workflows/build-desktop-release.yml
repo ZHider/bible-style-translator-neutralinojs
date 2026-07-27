@@ -1,0 +1,68 @@
+name: Build & Release Desktop App
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create/update (e.g. v1.1.2)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SPA and prepare Neutralinojs resources
+        run: pnpm desktop:build
+
+      - name: Build Neutralinojs binaries for all platforms
+        run: pnpx @neutralinojs/neu build
+
+      - name: List binaries
+        run: ls -la dist/bible-style-translator/
+
+      - name: Package per-platform zips
+        run: |
+          mkdir -p /tmp/zips
+          binary_dir="dist/bible-style-translator"
+          for binary in "$binary_dir"/bible-style-translator-*; do
+            case "$binary" in
+              *.zip) continue ;;
+              */resources.neu) continue ;;
+            esac
+            basename="${binary##*/}"
+            platform="${basename#bible-style-translator-}"
+            dir="/tmp/zips/${platform}"
+            mkdir -p "$dir"
+            cp "$binary" "$dir/"
+            cp "$binary_dir/resources.neu" "$dir/"
+            (cd "$dir" && zip -9 -r "/tmp/zips/bible-style-translator-${platform}.zip" .)
+          done
+          ls -la /tmp/zips/
+
+      - name: Upload assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+          files: /tmp/zips/bible-style-translator-*.zip
