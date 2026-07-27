@@ -298,7 +298,8 @@ export async function translatePipeline(
             systemPrompt: systemPrompt1,
             userPrompt: userPrompt1,
           });
-          logDebugStage("output", "AI 返回:", rawPlan);
+          logDebugStage("output", "AI 返回(原始):", rawPlan);
+          try { logDebugStage("output", "AI 返回(JSON):", JSON.parse(rawPlan)); } catch { /* 不是 JSON */ }
           const parsedPlan = parseScriptureSkeletonPlan(rawPlan);
           if (!parsedPlan) {
             logDebugStage("assessment", "JSON 解析失败，设 previousIssues 重试");
@@ -403,6 +404,7 @@ export async function translatePipeline(
             userPrompt: userPrompt2,
           });
           logDebugStage("output", "AI 返回:", generated);
+          try { logDebugStage("output", "AI 返回(JSON):", JSON.parse(generated)); } catch { /* 不是 JSON */ }
           const resultAssessment = assessScriptureStoryResult(text, generated);
           const lengthAssessment = assessScriptureLength(generated, lengthTarget, options.edition);
           const allIssues = [
@@ -485,6 +487,7 @@ export async function translatePipeline(
             userPrompt: userPrompt3,
           });
           logDebugStage("output", "AI 返回:", generated);
+          try { logDebugStage("output", "AI 返回(JSON):", JSON.parse(generated)); } catch { /* 不是 JSON */ }
         } catch (error) {
           if (shouldExposeUpstreamError(error) || attempt > 0) throw error;
           logDebugStage("decision", "调用异常，设 retryIssues 重试:", error);
