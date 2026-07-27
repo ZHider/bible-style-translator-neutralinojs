@@ -9,7 +9,7 @@ test("page presents the general Union Version transformer", async () => {
   const page = await readFile(path.join(root, "app/page.tsx"), "utf8");
   const layout = await readFile(path.join(root, "app/layout.tsx"), "utf8");
   assert.match(page, /《圣经》文体翻译器/);
-  assert.match(page, /bible-style-deepseek-api-key/);
+  assert.match(page, /STORAGE_KEYS\.API_KEY/);
   assert.match(page, /mode: "original"/);
   assert.match(page, /用寻常的话/);
   assert.match(page, /写出你的《圣经》故事/);

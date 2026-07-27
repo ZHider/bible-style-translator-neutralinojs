@@ -20,7 +20,7 @@ test("page exposes three edition switches and sends edition to the API", async (
   assert.match(page, /思高译腔/);
   assert.match(page, /KJV English/);
   assert.match(page, /edition,/);
-  assert.match(page, /bible-style-api-model/);
+  assert.match(page, /STORAGE_KEYS/);
   assert.match(page, /api-model-input/);
   assert.match(page, /model: apiModel \|\| undefined/);
 });
